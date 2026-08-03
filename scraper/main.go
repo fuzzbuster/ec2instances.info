@@ -6,11 +6,15 @@ import (
 	"scraper/alicloud"
 	"scraper/aws"
 	"scraper/azure"
+	"scraper/digitalocean"
 	"scraper/gcp"
+	"scraper/hetzner"
 	"scraper/huaweicloud"
+	"scraper/linode"
 	"scraper/tencentcloud"
 	"scraper/utils"
 	"scraper/volcengine"
+	"scraper/vultr"
 	"strings"
 )
 
@@ -72,6 +76,10 @@ func main() {
 	runIfAllowed("tencentcloud", tencentcloud.DoTencentcloudScraping)
 	runIfAllowed("volcengine", volcengine.DoVolcengineScraping)
 	runIfAllowed("huaweicloud", huaweicloud.DoHuaweicloudScraping)
+	runIfAllowed("vultr", vultr.DoVultrScraping)
+	runIfAllowed("linode", linode.DoLinodeScraping)
+	runIfAllowed("digitalocean", digitalocean.DoDigitalOceanScraping)
+	runIfAllowed("hetzner", hetzner.DoHetznerScraping)
 
 	fg.Run()
 	log.Default().Println("All threads done! Everything seems fine! Exiting now!")
