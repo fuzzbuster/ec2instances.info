@@ -2,6 +2,7 @@
 .env
 .direnv
 /dist/
+/build/
 /ec2instances
 /output/
 /www/
