@@ -6,8 +6,6 @@ import (
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
 	"github.com/fuzzbuster/ec2instances.info/aws/ec2/extras"
 	"strconv"
-
-	"github.com/aws/amazon-vpc-resource-controller-k8s/pkg/aws/vpc"
 )
 
 type VPC struct {
@@ -44,14 +42,9 @@ type EC2PricingData struct {
 	Reserved     *map[string]string `json:"reserved,omitempty"`
 	SpotMin      *Price             `json:"spot_min,omitempty"`
 	SpotMax      *Price             `json:"spot_max,omitempty"`
-	EMR          string             `json:"emr,omitempty"`
 	PCTInterrupt string             `json:"pct_interrupt,omitempty"`
 	PCTSavingsOD *int               `json:"pct_savings_od,omitempty"`
 	SpotAvg      Price              `json:"spot_avg,omitempty"`
-	// EKSAutoMode is the EKS Auto Mode management fee for this instance type in
-	// this region (currency units per hour). It is charged in addition to EC2
-	// instance pricing and is independent of the EC2 purchase option.
-	EKSAutoMode string `json:"eks_auto_mode,omitempty"`
 
 	spot []Price
 }
@@ -118,8 +111,6 @@ type EC2Instance struct {
 	PlacementGroupSupport    bool                       `json:"placement_group_support"`
 	AvailabilityZones        map[string][]string        `json:"availability_zones"`
 	Storage                  *Storage                   `json:"storage"`
-	EMR                      bool                       `json:"emr"`
-	EKSAutoMode              bool                       `json:"eks_auto_mode"`
 	IPV6Support              bool                       `json:"ipv6_support"`
 	CoremarkIterationsSecond *float64                   `json:"coremark_iterations_second,omitempty"`
 	GPUArchitectures         []string                   `json:"gpu_architectures,omitempty"`
@@ -138,11 +129,7 @@ type EC2Instance struct {
 	L3PerNumaNodeMB          *float64                   `json:"l3_per_numa_node_mb,omitempty"`
 	L3Shared                 *bool                      `json:"l3_shared,omitempty"`
 	IsBareMetal              *bool                      `json:"is_bare_metal,omitempty"`
-	IsTrunkingCompatible     *bool                      `json:"is_trunking_compatible,omitempty"`
-	BranchInterface          *int                       `json:"branch_interface,omitempty"`
-	MaxECSTasks              *int                       `json:"max_ecs_tasks,omitempty"`
 	DateIntroduced           *string                    `json:"date_introduced,omitempty"`
-	MaxPods                  *int                       `json:"max_pods,omitempty"`
 	BaselineBandwidth        *float64                   `json:"baseline_bandwidth_gbps,omitempty"`
 	BurstBandwidth           *float64                   `json:"burst_bandwidth_gbps,omitempty"`
 	NitroSupport             *bool                      `json:"nitro_support,omitempty"`
@@ -216,20 +203,5 @@ func (instance *EC2Instance) addExtraDetails() {
 			instance.L3PerNumaNodeMB = avg(details.NUMA.L3PerNodeMB)
 			instance.L3Shared = &details.NUMA.L3Shared
 		}
-	}
-
-	limits, ok := vpc.Limits[instance.InstanceType]
-	if ok {
-		instance.IsBareMetal = &limits.IsBareMetal
-		instance.IsTrunkingCompatible = &limits.IsTrunkingCompatible
-		instance.BranchInterface = &limits.BranchInterface
-		// https://docs.aws.amazon.com/AmazonECS/latest/developerguide/container-instance-eni.html
-		var maxEcsTasks int
-		if limits.IsTrunkingCompatible {
-			maxEcsTasks = limits.Interface + limits.BranchInterface - 2
-		} else {
-			maxEcsTasks = limits.Interface - 1
-		}
-		instance.MaxECSTasks = &maxEcsTasks
 	}
 }

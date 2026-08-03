@@ -97,6 +97,8 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 	}
 	instance.PhysicalProcessor = attributes["physicalProcessor"]
 	if hasApiDescription {
+		instance.IsBareMetal = apiDescription.BareMetal
+
 		arches := make([]string, len(apiDescription.ProcessorInfo.SupportedArchitectures))
 		for i, arch := range apiDescription.ProcessorInfo.SupportedArchitectures {
 			arches[i] = string(arch)
