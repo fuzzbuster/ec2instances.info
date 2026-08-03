@@ -83,6 +83,21 @@ request uses the built-in SigV4 Query client and does not depend on the AWS SDK.
 See [Azure setup](docs/setting-up-azure.md) and
 [GCP setup](docs/setting-up-gcp.md) for credential creation.
 
+## Warning Notifications
+
+Scrape warnings are always printed to stderr. They can also be sent to optional
+notification providers when the following environment variables are set:
+
+| Provider | Environment |
+| --- | --- |
+| Slack | `SLACK_WEBHOOK_URL` |
+| Feishu | `FEISHU_WEBHOOK_URL`; optional `FEISHU_SECRET` for signed webhooks |
+| ntfy | `NTFY_URL`; optional `NTFY_TOKEN` for bearer auth or `NTFY_AUTH_HEADER` for a raw `Authorization` header |
+| Bark | `BARK_URL` server base URL, for example `https://api.day.app`; `BARK_DEVICE_KEY` |
+
+Notification requests use a 5 second timeout. Delivery failures are logged and
+do not fail the scrape.
+
 ## Agent Contract
 
 With `--json`, stdout contains exactly one JSON object. Progress logs go to
