@@ -3,10 +3,14 @@ package main
 import (
 	"log"
 	"os"
+	"scraper/alicloud"
 	"scraper/aws"
 	"scraper/azure"
 	"scraper/gcp"
+	"scraper/huaweicloud"
+	"scraper/tencentcloud"
 	"scraper/utils"
+	"scraper/volcengine"
 	"strings"
 )
 
@@ -63,6 +67,11 @@ func main() {
 	runIfAllowed("aws", aws.DoAwsScraping)
 	runIfAllowed("azure", azure.DoAzureScraping)
 	runIfAllowed("gcp", gcp.DoGCPScraping)
+	// Chinese cloud providers — credentials optional; static seed data is always used.
+	runIfAllowed("alicloud", alicloud.DoAlicloudScraping)
+	runIfAllowed("tencentcloud", tencentcloud.DoTencentcloudScraping)
+	runIfAllowed("volcengine", volcengine.DoVolcengineScraping)
+	runIfAllowed("huaweicloud", huaweicloud.DoHuaweicloudScraping)
 
 	fg.Run()
 	log.Default().Println("All threads done! Everything seems fine! Exiting now!")
