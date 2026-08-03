@@ -16,11 +16,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
+	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -44,6 +43,8 @@ var huaweiRegions = []string{
 	"ap-southeast-3", // Singapore
 	"na-mexico-1",    // Mexico
 }
+
+var huaweiHTTPClient = req.C().SetTimeout(30 * time.Second).DisableAutoDecode()
 
 // ----- output instance struct -----
 
@@ -221,25 +222,20 @@ func listFlavors(ak, sk, projectID, region string) ([]hwFlavor, error) {
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, _ := http.NewRequest("GET", endpoint, nil)
-	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("X-Sdk-Date", sdkDate)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
+	var out hwFlavorsResponse
+	resp, err := huaweiHTTPClient.R().
+		SetHeaders(map[string]string{
+			"Authorization": authHeader,
+			"X-Sdk-Date":    sdkDate,
+			"Content-Type":  "application/json",
+		}).
+		SetSuccessResult(&out).
+		Get(endpoint)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, endpoint)
-	}
-
-	var out hwFlavorsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
 	}
 	return out.Flavors, nil
 }

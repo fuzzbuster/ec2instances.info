@@ -2,8 +2,6 @@ package ec2
 
 import (
 	"log"
-
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 var OK_NVME_STRINGS = map[string]bool{
@@ -11,13 +9,17 @@ var OK_NVME_STRINGS = map[string]bool{
 	"required":  true,
 }
 
-func addInstanceStorageDetails(instance *EC2Instance, apiDescription *types.InstanceTypeInfo) {
+func addInstanceStorageDetails(instance *EC2Instance, apiDescription *APIInstanceTypeInfo) {
 	storageInfo := apiDescription.InstanceStorageInfo
 	if storageInfo != nil {
 		if len(storageInfo.Disks) == 0 {
 			log.Default().Println("No disks found for", instance.InstanceType)
+			return
 		}
 		disk := storageInfo.Disks[0]
+		if disk.Count == nil || disk.SizeInGB == nil {
+			return
+		}
 		instance.Storage = &Storage{
 			NVMeSSD: OK_NVME_STRINGS[string(storageInfo.NvmeSupport)],
 			SSD:     disk.Type == "ssd",

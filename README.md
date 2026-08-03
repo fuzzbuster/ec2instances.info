@@ -61,7 +61,7 @@ Each dataset is written as JSON and as matching `.gz` and `.br` files.
 
 | Provider | Name | Required environment |
 | --- | --- | --- |
-| Amazon EC2 | `aws` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| Amazon EC2 | `aws` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional `AWS_SESSION_TOKEN` |
 | Azure Virtual Machines | `azure` | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID` |
 | Google Compute Engine | `gcp` | `GCP_PROJECT_ID`, `GCP_CLIENT_EMAIL`, `GCP_PRIVATE_KEY` |
 | Alibaba Cloud ECS | `alicloud` | Optional: `ALICLOUD_ACCESS_KEY`, `ALICLOUD_SECRET_KEY` |
@@ -74,6 +74,11 @@ Each dataset is written as JSON and as matching `.gz` and `.br` files.
 | Hetzner Cloud | `hetzner` | None |
 
 Optional credentials enrich providers that also contain static seed data.
+
+AWS credentials only need the `ec2:DescribeInstanceTypes` IAM permission. AWS
+output includes instance specifications and non-Spot pricing, but does not
+include Spot prices, interruption rates, or Spot savings estimates. The EC2 API
+request uses the built-in SigV4 Query client and does not depend on the AWS SDK.
 
 See [Azure setup](docs/setting-up-azure.md) and
 [GCP setup](docs/setting-up-gcp.md) for credential creation.

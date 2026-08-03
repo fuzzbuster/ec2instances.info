@@ -1,11 +1,9 @@
 package ec2
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
 	"github.com/fuzzbuster/ec2instances.info/aws/ec2/extras"
-	"strconv"
 )
 
 type VPC struct {
@@ -17,36 +15,9 @@ type Region = string
 
 type OS = string
 
-type Price float64
-
-func (p *Price) MarshalJSON() ([]byte, error) {
-	dp := formatPrice(float64(*p))
-	return []byte(`"` + dp + `"`), nil
-}
-
-func (p *Price) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return err
-	}
-	*p = Price(f)
-	return nil
-}
-
 type EC2PricingData struct {
-	OnDemand     string             `json:"ondemand,omitempty"`
-	Reserved     *map[string]string `json:"reserved,omitempty"`
-	SpotMin      *Price             `json:"spot_min,omitempty"`
-	SpotMax      *Price             `json:"spot_max,omitempty"`
-	PCTInterrupt string             `json:"pct_interrupt,omitempty"`
-	PCTSavingsOD *int               `json:"pct_savings_od,omitempty"`
-	SpotAvg      Price              `json:"spot_avg,omitempty"`
-
-	spot []Price
+	OnDemand string             `json:"ondemand,omitempty"`
+	Reserved *map[string]string `json:"reserved,omitempty"`
 }
 
 type Storage struct {

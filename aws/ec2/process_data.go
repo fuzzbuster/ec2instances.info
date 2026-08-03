@@ -9,12 +9,10 @@ import (
 	"strings"
 
 	"github.com/anaskhan96/soup"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 type ec2DataGetters struct {
-	spotDataPartialGetter func() (*spotDataPartial, error)
-	t2HtmlGetter          func() (*soup.Root, error)
+	t2HtmlGetter func() (*soup.Root, error)
 }
 
 var EC2_OK_PRODUCT_FAMILIES = map[string]bool{
@@ -39,7 +37,7 @@ type ec2SkuData struct {
 
 func processEC2Data(
 	inData chan awsutils.RawRegion,
-	ec2ApiResponses *utils.SlowBuildingMap[string, *types.InstanceTypeInfo],
+	ec2ApiResponses *utils.SlowBuildingMap[string, *APIInstanceTypeInfo],
 	china bool,
 	getters ec2DataGetters,
 ) error {
@@ -246,13 +244,6 @@ func processEC2Data(
 		return fmt.Errorf("EC2 pricing stream ended before savings plan data")
 	}
 
-	// Add spot pricing if not China
-	if !china {
-		if err := addSpotPricing(instancesHashmap, regionDescriptions); err != nil {
-			return err
-		}
-	}
-
 	// Add EBS pricing if not China
 	if !china {
 		if err := addEBSPricing(instancesHashmap, currency); err != nil {
@@ -301,11 +292,6 @@ func processEC2Data(
 		if err := addDedicatedHostPricingUs(instancesHashmap, regionsInverted); err != nil {
 			return err
 		}
-	}
-
-	// Add spot interrupt information
-	if err := addSpotInterruptInfo(instancesHashmap, getters.spotDataPartialGetter, china); err != nil {
-		return err
 	}
 
 	// Add Linux AMI info

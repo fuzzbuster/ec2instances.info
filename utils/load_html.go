@@ -6,9 +6,8 @@ import (
 
 // LoadHTML loads an HTML document from a URL and returns the root node.
 //
-// It shares the same bounded retry/backoff and tuned, connection-pooling client
-// as the JSON loader (see http_retry.go), so transient network failures are
-// absorbed rather than aborting the scrape.
+// It shares the bounded retry policy and pooled req client used by the JSON
+// loader.
 func LoadHTML(url string) (*soup.Root, error) {
 	body, err := FetchWithRetry(url, nil)
 	if err != nil {

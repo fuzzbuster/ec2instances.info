@@ -42,6 +42,7 @@ var providers = []provider{
 	{
 		Name:        "aws",
 		RequiredEnv: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"},
+		OptionalEnv: []string{"AWS_SESSION_TOKEN"},
 		Run:         aws.DoAwsScraping,
 	},
 	{

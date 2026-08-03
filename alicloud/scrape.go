@@ -21,11 +21,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
+	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -37,6 +36,8 @@ const (
 	cnPricingURL   = "https://g.alicdn.com/aliyun/ecs-price-info/2.0.8/price/download/instancePrice.json"
 	outputFilePath = "alicloud/instances.json"
 )
+
+var alicloudHTTPClient = req.C().SetTimeout(60 * time.Second).DisableAutoDecode()
 
 // ----- pricing response structs -----
 
@@ -299,21 +300,17 @@ func lookupPrettyName(family string) string {
 // ----- HTTP helper -----
 
 func fetchJSON(url string, dest interface{}) error {
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest("GET", url, nil)
+	resp, err := alicloudHTTPClient.R().
+		SetHeader("User-Agent", "ec2instances.info-scraper/1.0 (alicloud)").
+		SetSuccessResult(dest).
+		Get(url)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "ec2instances.info-scraper/1.0 (alicloud)")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != 200 {
 		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
-	return json.NewDecoder(resp.Body).Decode(dest)
+	return nil
 }
 
 // ----- optional: signed ECS API for authoritative specs -----

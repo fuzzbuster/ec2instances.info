@@ -148,6 +148,28 @@ func TestFetchWithRetryRetriesTransient404(t *testing.T) {
 	}
 }
 
+func TestFetchWithRetryRetriesRateLimit(t *testing.T) {
+	shrinkBackoff(t)
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	if _, err := FetchWithRetry(srv.URL, nil); err != nil {
+		t.Fatalf("expected success after 429 retry, got error: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected 2 attempts, got %d", got)
+	}
+}
+
 // TestFetchWithRetrySendsBearerToken asserts the bearer token is forwarded.
 func TestFetchWithRetrySendsBearerToken(t *testing.T) {
 	shrinkBackoff(t)
@@ -166,6 +188,24 @@ func TestFetchWithRetrySendsBearerToken(t *testing.T) {
 	}
 	if gotAuth != "Bearer secret-token" {
 		t.Fatalf("expected bearer header to be set, got %q", gotAuth)
+	}
+}
+
+func TestFetchWithRetryPreservesResponseBytes(t *testing.T) {
+	want := []byte{0xff, 0xfe, 0xfd}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=iso-8859-1")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(want)
+	}))
+	defer srv.Close()
+
+	got, err := FetchWithRetry(srv.URL, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("response bytes = %v, want %v", got, want)
 	}
 }
 

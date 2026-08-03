@@ -1,45 +1,27 @@
 package utils
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
+	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"os"
 )
 
 var slackWebhookUrl = os.Getenv("SLACK_WEBHOOK_URL")
+var slackHTTPClient = req.C().DisableAutoDecode()
 
 func sendSlackMessage(message string) {
-	// use net/http to send the message to the webhook.
 	jsonData := map[string]string{
 		"text": message,
 	}
-	jsonDataBytes, err := json.Marshal(jsonData)
-	if err != nil {
-		log.Default().Println("Error marshalling Slack JSON:", err)
-		return
-	}
-
-	// send the message to the webhook.
-	request, err := http.NewRequest("POST", slackWebhookUrl, bytes.NewBuffer(jsonDataBytes))
-	if err != nil {
-		log.Default().Println("Error creating Slack request:", err)
-		return
-	}
-	request.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	response, err := client.Do(request)
+	response, err := slackHTTPClient.R().
+		SetBodyJsonMarshal(jsonData).
+		Post(slackWebhookUrl)
 	if err != nil {
 		log.Default().Println("Error sending Slack message:", err)
 		return
 	}
-	defer response.Body.Close()
-
-	// check the response status.
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != 200 {
 		log.Default().Println("Error sending Slack message:", response.Status)
 		return
 	}

@@ -6,8 +6,6 @@ import (
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"strconv"
 	"strings"
-
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 var IPV4_ONLY_FAMILIES = []string{
@@ -58,7 +56,7 @@ var EC2_FAMILY_NAMES = map[string]string{
 	"x1":      "X1 Extra High-Memory",
 }
 
-func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2ApiResponses *utils.SlowBuildingMap[string, *types.InstanceTypeInfo]) error {
+func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2ApiResponses *utils.SlowBuildingMap[string, *APIInstanceTypeInfo]) error {
 	instance.Family = attributes["instanceFamily"]
 	VCPU, err := strconv.Atoi(attributes["vcpu"])
 	if err != nil {
@@ -99,11 +97,9 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 	if hasApiDescription {
 		instance.IsBareMetal = apiDescription.BareMetal
 
-		arches := make([]string, len(apiDescription.ProcessorInfo.SupportedArchitectures))
-		for i, arch := range apiDescription.ProcessorInfo.SupportedArchitectures {
-			arches[i] = string(arch)
+		if apiDescription.ProcessorInfo != nil {
+			instance.Arch = append([]string(nil), apiDescription.ProcessorInfo.SupportedArchitectures...)
 		}
-		instance.Arch = arches
 
 		// Physical core count, per DescribeInstanceTypes VCpuInfo.DefaultCores.
 		// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_VCpuInfo.html
@@ -112,25 +108,26 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 			instance.Cores = &cores
 		}
 
-		if apiDescription.NetworkInfo.NetworkPerformance == nil {
-			instance.NetworkPerformance = "Unknown"
-		} else if *apiDescription.NetworkInfo.NetworkPerformance != "NA" {
-			instance.NetworkPerformance = *apiDescription.NetworkInfo.NetworkPerformance
-		}
-
-		if len(apiDescription.NetworkInfo.NetworkCards) > 0 {
-			card := apiDescription.NetworkInfo.NetworkCards[0]
-			instance.BaselineBandwidth = card.BaselineBandwidthInGbps
-			instance.BurstBandwidth = card.PeakBandwidthInGbps
+		if apiDescription.NetworkInfo != nil {
+			if apiDescription.NetworkInfo.NetworkPerformance == nil {
+				instance.NetworkPerformance = "Unknown"
+			} else if *apiDescription.NetworkInfo.NetworkPerformance != "NA" {
+				instance.NetworkPerformance = *apiDescription.NetworkInfo.NetworkPerformance
+			}
+			if len(apiDescription.NetworkInfo.NetworkCards) > 0 {
+				card := apiDescription.NetworkInfo.NetworkCards[0]
+				instance.BaselineBandwidth = card.BaselineBandwidthInGbps
+				instance.BurstBandwidth = card.PeakBandwidthInGbps
+			}
 		}
 
 		// If AWS omits a field, leave the pointer nil
 		if apiDescription.Hypervisor != "" {
-			nitro := apiDescription.Hypervisor == types.InstanceTypeHypervisorNitro
+			nitro := apiDescription.Hypervisor == "nitro"
 			instance.NitroSupport = &nitro
 		}
 		if apiDescription.NitroEnclavesSupport != "" {
-			enclave := apiDescription.NitroEnclavesSupport == types.NitroEnclavesSupportSupported
+			enclave := apiDescription.NitroEnclavesSupport == "supported"
 			instance.NitroEnclaveSupport = &enclave
 		}
 
@@ -195,9 +192,12 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 				instance.EBSAsNVMe = true
 			}
 
-			instance.VPC = &VPC{
-				MaxENIs:   int(*apiDescription.NetworkInfo.MaximumNetworkInterfaces),
-				IPsPerENI: int(*apiDescription.NetworkInfo.Ipv4AddressesPerInterface),
+			if apiDescription.NetworkInfo.MaximumNetworkInterfaces != nil &&
+				apiDescription.NetworkInfo.Ipv4AddressesPerInterface != nil {
+				instance.VPC = &VPC{
+					MaxENIs:   int(*apiDescription.NetworkInfo.MaximumNetworkInterfaces),
+					IPsPerENI: int(*apiDescription.NetworkInfo.Ipv4AddressesPerInterface),
+				}
 			}
 		}
 
@@ -205,12 +205,24 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 			if apiDescription.EbsInfo.EbsOptimizedInfo != nil {
 				ebsOptimizedInfo := apiDescription.EbsInfo.EbsOptimizedInfo
 				instance.EBSOptimized = true
-				instance.EBSBaselineThroughput = *ebsOptimizedInfo.BaselineThroughputInMBps
-				instance.EBSBaselineIOPS = int(*ebsOptimizedInfo.BaselineIops)
-				instance.EBSBaselineBandwidth = int(*ebsOptimizedInfo.BaselineBandwidthInMbps)
-				instance.EBSThroughput = *ebsOptimizedInfo.MaximumThroughputInMBps
-				instance.EBSIOPS = int(*ebsOptimizedInfo.MaximumIops)
-				instance.EBSMaxBandwidth = int(*ebsOptimizedInfo.MaximumBandwidthInMbps)
+				if ebsOptimizedInfo.BaselineThroughputInMBps != nil {
+					instance.EBSBaselineThroughput = *ebsOptimizedInfo.BaselineThroughputInMBps
+				}
+				if ebsOptimizedInfo.BaselineIops != nil {
+					instance.EBSBaselineIOPS = int(*ebsOptimizedInfo.BaselineIops)
+				}
+				if ebsOptimizedInfo.BaselineBandwidthInMbps != nil {
+					instance.EBSBaselineBandwidth = int(*ebsOptimizedInfo.BaselineBandwidthInMbps)
+				}
+				if ebsOptimizedInfo.MaximumThroughputInMBps != nil {
+					instance.EBSThroughput = *ebsOptimizedInfo.MaximumThroughputInMBps
+				}
+				if ebsOptimizedInfo.MaximumIops != nil {
+					instance.EBSIOPS = int(*ebsOptimizedInfo.MaximumIops)
+				}
+				if ebsOptimizedInfo.MaximumBandwidthInMbps != nil {
+					instance.EBSMaxBandwidth = int(*ebsOptimizedInfo.MaximumBandwidthInMbps)
+				}
 			}
 		}
 	}

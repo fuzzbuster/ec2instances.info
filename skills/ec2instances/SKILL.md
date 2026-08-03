@@ -55,7 +55,8 @@ Output directory precedence:
 
 Required credentials:
 
-- `aws`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+- `aws`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional
+  `AWS_SESSION_TOKEN`. The credentials need `ec2:DescribeInstanceTypes`.
 - `azure`: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
   `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`
 - `gcp`: `GCP_PROJECT_ID`, `GCP_CLIENT_EMAIL`, `GCP_PRIVATE_KEY`
@@ -63,6 +64,8 @@ Required credentials:
 Alibaba Cloud, Tencent Cloud, Volcengine, and Huawei Cloud can use optional
 credentials to enrich their static seed data. Vultr, Linode, DigitalOcean, and
 Hetzner need no credentials.
+
+AWS output excludes Spot prices, interruption rates, and Spot savings estimates.
 
 Never print credentials or place them in command arguments. Pass them through
 the process environment.

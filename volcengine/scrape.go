@@ -17,11 +17,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
+	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -42,6 +41,8 @@ var volcengineRegions = []string{
 	"ap-southeast-1", "ap-southeast-3", "ap-southeast-2",
 	"us-east-1",
 }
+
+var volcengineHTTPClient = req.C().SetTimeout(30 * time.Second).DisableAutoDecode()
 
 // ----- output instance struct -----
 
@@ -230,21 +231,16 @@ func describeInstanceTypes(accessKey, secretKey, nextToken string) ([]veInstance
 		return nil, "", err
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, _ := http.NewRequest("GET", signedURL, nil)
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
+	var out veDescribeResponse
+	resp, err := volcengineHTTPClient.R().
+		SetHeaders(headers).
+		SetSuccessResult(&out).
+		Get(signedURL)
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
-
-	var out veDescribeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, "", err
+	if resp.StatusCode != 200 {
+		return nil, "", fmt.Errorf("HTTP %d for %s", resp.StatusCode, signedURL)
 	}
 	if out.ResponseMetadata.Error != nil {
 		return nil, "", fmt.Errorf("API %s: %s", out.ResponseMetadata.Error.Code, out.ResponseMetadata.Error.Message)

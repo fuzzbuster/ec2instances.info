@@ -18,11 +18,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
+	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -42,6 +41,8 @@ var tencentRegions = []string{
 	"ap-nanjing", "ap-hongkong", "ap-singapore", "ap-bangkok", "ap-mumbai",
 	"ap-tokyo", "ap-seoul", "na-siliconvalley", "na-ashburn", "eu-frankfurt",
 }
+
+var tencentHTTPClient = req.C().SetTimeout(30 * time.Second).DisableAutoDecode()
 
 // ----- output instance struct -----
 
@@ -220,21 +221,17 @@ func describeInstanceTypeConfigs(secretID, secretKey, region string) ([]cvmInsta
 	auth := buildTCAuth(secretID, secretKey, "cvm", headers, payload, date, timestamp)
 	headers["Authorization"] = auth
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, _ := http.NewRequest("POST", cvmAPIEndpoint, strings.NewReader(payload))
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
+	var out cvmResponse
+	resp, err := tencentHTTPClient.R().
+		SetHeaders(headers).
+		SetBodyString(payload).
+		SetSuccessResult(&out).
+		Post(cvmAPIEndpoint)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	var out cvmResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, cvmAPIEndpoint)
 	}
 	if out.Response.Error != nil {
 		return nil, fmt.Errorf("API error %s: %s", out.Response.Error.Code, out.Response.Error.Message)

@@ -1,18 +1,12 @@
 package aws
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
 	"runtime"
 	"strings"
 	"sync"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
 	ec2Internal "github.com/fuzzbuster/ec2instances.info/aws/ec2"
@@ -104,10 +98,6 @@ func loadEC2Regions(
 	return nil
 }
 
-func int32Ptr(i int32) *int32 {
-	return &i
-}
-
 var REGIONS_ITERATOR = []string{
 	"us-east-1",
 	"us-east-2",
@@ -118,47 +108,24 @@ var REGIONS_ITERATOR = []string{
 	"eu-central-1",
 }
 
-func crossRegionDescribeInstanceTypesIterator(pushChunk func(map[string]*types.InstanceTypeInfo)) error {
+func crossRegionDescribeInstanceTypesIterator(pushChunk func(map[string]*ec2Internal.APIInstanceTypeInfo)) error {
 	seen := map[string]struct{}{}
 	var seenMu sync.Mutex
+	client := newEC2APIClient()
 
 	var group utils.FunctionGroup
 	for _, region := range REGIONS_ITERATOR {
 		group.Add(func() error {
-			awsConfig, err := config.LoadDefaultConfig(
-				context.Background(),
-				config.WithRetryMaxAttempts(10),
-				config.WithRetryMode(aws.RetryModeAdaptive),
-			)
-			if err != nil {
-				return fmt.Errorf("load AWS config for %s: %w", region, err)
-			}
-			awsConfig.Region = region
-			client := ec2.NewFromConfig(awsConfig)
-			paginator := ec2.NewDescribeInstanceTypesPaginator(client, &ec2.DescribeInstanceTypesInput{
-				MaxResults: int32Ptr(100),
-			})
-
-			firstPage := true
-			for paginator.HasMorePages() {
-				output, err := paginator.NextPage(context.TODO())
-				if err != nil {
-					if firstPage && !strings.Contains(err.Error(), "RateLimitExceeded") && region != "us-east-1" {
-						return nil
-					}
-					return fmt.Errorf("describe EC2 instance types in %s: %w", region, err)
-				}
-				firstPage = false
-
-				instanceTypes := make(map[string]*types.InstanceTypeInfo)
+			pages, err := client.describeInstanceTypes(region, func(output []ec2Internal.APIInstanceTypeInfo) {
+				instanceTypes := make(map[string]*ec2Internal.APIInstanceTypeInfo)
 				seenMu.Lock()
-				for i := range output.InstanceTypes {
-					instanceType := string(output.InstanceTypes[i].InstanceType)
+				for i := range output {
+					instanceType := output[i].InstanceType
 					if _, ok := seen[instanceType]; ok {
 						continue
 					}
 					seen[instanceType] = struct{}{}
-					instanceTypes[instanceType] = &output.InstanceTypes[i]
+					instanceTypes[instanceType] = &output[i]
 				}
 				seenMu.Unlock()
 				if len(instanceTypes) > 0 {
@@ -166,6 +133,12 @@ func crossRegionDescribeInstanceTypesIterator(pushChunk func(map[string]*types.I
 					log.Printf("Processed %d unique instance type descriptions for %s", len(instanceTypes), region)
 				}
 				runtime.GC()
+			})
+			if err != nil {
+				if pages == 0 && !isEC2RateLimitError(err) && region != "us-east-1" {
+					return nil
+				}
+				return fmt.Errorf("describe EC2 instance types in %s: %w", region, err)
 			}
 			return nil
 		})
