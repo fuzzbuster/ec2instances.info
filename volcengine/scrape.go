@@ -17,22 +17,27 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"github.com/imroc/req/v3"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	outputFilePath = "volcengine/instances.json"
-	ecsAPIHost     = "open.volcengineapi.com"
-	ecsAPIRegion   = "cn-beijing" // service endpoint region
-	ecsService     = "ecs"
+	outputFilePath           = "volcengine/instances.json"
+	ecsAPIHost               = "open.volcengineapi.com"
+	ecsAPIRegion             = "cn-beijing" // service endpoint region
+	ecsService               = "ecs"
+	anonymousPriceURL        = "https://www.volcengine.com/anonymous-api/trade/price"
+	anonymousECSTemplateCode = "CLT7310571628986405164"
 )
 
 // Volcengine regions list.
@@ -42,20 +47,26 @@ var volcengineRegions = []string{
 	"us-east-1",
 }
 
-var volcengineHTTPClient = req.C().SetTimeout(30 * time.Second).DisableAutoDecode()
+var volcengineHTTPClient = req.C().
+	SetTimeout(30 * time.Second).
+	DisableAutoDecode().
+	SetProxy(http.ProxyFromEnvironment)
 
 // ----- output instance struct -----
 
 // VEInstance represents a Volcengine ECS instance type.
 type VEInstance struct {
-	InstanceType   string   `json:"instance_type"`
-	InstanceFamily string   `json:"instance_family"`
-	PrettyName     string   `json:"pretty_name"`
-	VCPU           int      `json:"vCPU"`
-	Memory         float64  `json:"memory"` // GiB
-	Arch           []string `json:"arch"`
-	GPU            int      `json:"GPU"`
-	GPUModel       string   `json:"GPU_model,omitempty"`
+	InstanceType      string              `json:"instance_type"`
+	InstanceFamily    string              `json:"instance_family"`
+	PrettyName        string              `json:"pretty_name"`
+	VCPU              int                 `json:"vCPU"`
+	Memory            float64             `json:"memory"` // GiB
+	Arch              []string            `json:"arch"`
+	GPU               int                 `json:"GPU"`
+	GPUModel          string              `json:"GPU_model,omitempty"`
+	PhysicalProcessor string              `json:"physical_processor,omitempty"`
+	LocalStorage      string              `json:"local_storage,omitempty"`
+	AvailabilityZones map[string][]string `json:"availability_zones,omitempty"`
 	// Pricing: region → os → {"ondemand": "price"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	Regions []string                                `json:"regions"`
@@ -168,6 +179,257 @@ type veDescribeResponse struct {
 		InstanceTypes []veInstanceType `json:"InstanceTypes"`
 		NextToken     string           `json:"NextToken"`
 	} `json:"Result"`
+}
+
+// ----- anonymous pricing portal fetch -----
+
+type anonymousTemplateResponse struct {
+	Result struct {
+		List []struct {
+			Template string `json:"Template"`
+		} `json:"List"`
+	} `json:"Result"`
+}
+
+func fetchAnonymousSpecs() (map[string]*VEInstance, error) {
+	templateURL := anonymousPriceURL + "?Action=ListTemplate&Version=2020-01-01&TemplateCode=" + anonymousECSTemplateCode
+	var templateResponse anonymousTemplateResponse
+	if err := fetchAnonymousJSON("GET", templateURL, nil, &templateResponse); err != nil {
+		return nil, err
+	}
+	if len(templateResponse.Result.List) == 0 {
+		return nil, fmt.Errorf("anonymous ECS template is empty")
+	}
+
+	var template any
+	if err := json.Unmarshal([]byte(templateResponse.Result.List[0].Template), &template); err != nil {
+		return nil, fmt.Errorf("decode anonymous ECS template: %w", err)
+	}
+	all := map[string]*VEInstance{}
+	walkJSONObjects(template, func(object map[string]any) {
+		mergeAnonymousSpec(all, object)
+	})
+	if len(all) == 0 {
+		return nil, fmt.Errorf("anonymous ECS template contained no instance types")
+	}
+
+	tableURL := anonymousPriceURL + "?Action=GetTable&Version=2020-01-01"
+	var tableResponse any
+	body := map[string]string{"TemplateCode": anonymousECSTemplateCode}
+	if err := fetchAnonymousJSON("POST", tableURL, body, &tableResponse); err != nil {
+		return nil, err
+	}
+	walkJSONObjects(tableResponse, func(object map[string]any) {
+		mergeAnonymousPrice(all, object)
+	})
+	return all, nil
+}
+
+func fetchAnonymousJSON(method, url string, body any, dest any) error {
+	request := volcengineHTTPClient.R().
+		SetHeaders(map[string]string{
+			"Accept":  "application/json",
+			"Origin":  "https://www.volcengine.com",
+			"Referer": "https://www.volcengine.com/pricing?product=ECS&tab=2",
+		}).
+		SetSuccessResult(dest)
+	var (
+		response *req.Response
+		err      error
+	)
+	if method == "POST" {
+		response, err = request.SetBody(body).Post(url)
+	} else {
+		response, err = request.Get(url)
+	}
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d for %s", response.StatusCode, url)
+	}
+	return nil
+}
+
+func walkJSONObjects(value any, visit func(map[string]any)) {
+	switch current := value.(type) {
+	case map[string]any:
+		visit(current)
+		for _, child := range current {
+			walkJSONObjects(child, visit)
+		}
+	case []any:
+		for _, child := range current {
+			walkJSONObjects(child, visit)
+		}
+	}
+}
+
+func mergeAnonymousSpec(all map[string]*VEInstance, object map[string]any) {
+	if stringValue(object["Product"]) != "ECS" {
+		return
+	}
+	instanceType := normalizeAnonymousInstanceType(stringValue(object["ConfigurationCode"]))
+	if instanceType == "" {
+		return
+	}
+	abilities, ok := object["AbilityAttrs"].([]any)
+	if !ok {
+		return
+	}
+
+	instance := all[instanceType]
+	if instance == nil {
+		family := strings.SplitN(strings.TrimPrefix(instanceType, "ecs."), ".", 2)[0]
+		instance = &VEInstance{
+			InstanceType:      instanceType,
+			InstanceFamily:    family,
+			PrettyName:        prettyName(family),
+			Arch:              []string{"x86_64"},
+			Pricing:           map[string]map[string]map[string]string{},
+			AvailabilityZones: map[string][]string{},
+		}
+		all[instanceType] = instance
+	}
+	for _, rawAbility := range abilities {
+		ability, ok := rawAbility.(map[string]any)
+		if !ok {
+			continue
+		}
+		value := stringValue(ability["Value"])
+		switch stringValue(ability["Ability"]) {
+		case "vcpu":
+			instance.VCPU = leadingInt(value)
+		case "memory":
+			instance.Memory = leadingFloat(value)
+		case "processor":
+			instance.PhysicalProcessor = value
+		case "hdd", "ssd":
+			if value != "" {
+				instance.LocalStorage = value
+			}
+		}
+	}
+
+	region := stringValue(object["Region"])
+	if region != "" {
+		instance.Regions = utils.AppendUnique(instance.Regions, region)
+		for _, zone := range decodeAnonymousZones(stringValue(object["AvailableZone"])) {
+			instance.AvailabilityZones[region] = utils.AppendUnique(instance.AvailabilityZones[region], zone)
+		}
+	}
+}
+
+func mergeAnonymousPrice(all map[string]*VEInstance, object map[string]any) {
+	if stringValue(object["Product"]) != "ECS" {
+		return
+	}
+	instanceType := normalizeAnonymousInstanceType(stringValue(object["ConfigurationCode"]))
+	instance := all[instanceType]
+	if instance == nil {
+		return
+	}
+	region := ""
+	chargeItem := stringValue(object["ChargeItemCode"])
+	for _, candidate := range instance.Regions {
+		if strings.HasSuffix(chargeItem, "_"+candidate) {
+			region = candidate
+			break
+		}
+	}
+	if region == "" {
+		return
+	}
+	rawPrices, ok := object["PriceInfoList"].([]any)
+	if !ok {
+		return
+	}
+	prices := instance.Pricing[region]
+	if prices == nil {
+		prices = map[string]map[string]string{"linux": {}}
+		instance.Pricing[region] = prices
+	}
+	for _, rawPrice := range rawPrices {
+		price, ok := rawPrice.(map[string]any)
+		if !ok {
+			continue
+		}
+		key := anonymousPriceKey(stringValue(price["Period"]), intValue(price["Times"]))
+		value := stringValue(price["Price"])
+		if key != "" && value != "" {
+			prices["linux"][key] = value
+		}
+	}
+}
+
+func normalizeAnonymousInstanceType(value string) string {
+	value = strings.TrimSuffix(value, ".month")
+	if !strings.HasPrefix(value, "ecs.") || strings.Count(value, ".") < 2 {
+		return ""
+	}
+	return value
+}
+
+func decodeAnonymousZones(value string) []string {
+	var zones []struct {
+		ZoneCode string `json:"ZoneCode"`
+	}
+	if value == "" || json.Unmarshal([]byte(value), &zones) != nil {
+		return nil
+	}
+	result := make([]string, 0, len(zones))
+	for _, zone := range zones {
+		if zone.ZoneCode != "" {
+			result = append(result, zone.ZoneCode)
+		}
+	}
+	return result
+}
+
+func anonymousPriceKey(period string, times int) string {
+	switch {
+	case period == "hourly":
+		return "ondemand"
+	case period == "monthly" && times == 1:
+		return "monthly"
+	case period == "monthly" && times >= 12 && times%12 == 0:
+		return fmt.Sprintf("yearly_%d", times/12)
+	default:
+		return ""
+	}
+}
+
+func stringValue(value any) string {
+	switch current := value.(type) {
+	case string:
+		return current
+	case json.Number:
+		return current.String()
+	case float64:
+		return strconv.FormatFloat(current, 'f', -1, 64)
+	default:
+		return ""
+	}
+}
+
+func intValue(value any) int {
+	if number, ok := value.(float64); ok {
+		return int(number)
+	}
+	result, _ := strconv.Atoi(stringValue(value))
+	return result
+}
+
+func leadingInt(value string) int {
+	var result int
+	fmt.Sscanf(value, "%d", &result)
+	return result
+}
+
+func leadingFloat(value string) float64 {
+	var result float64
+	fmt.Sscanf(value, "%f", &result)
+	return result
 }
 
 // ----- optional API fetch -----
@@ -339,22 +601,26 @@ func prettyName(family string) string {
 func DoVolcengineScraping() error {
 	log.Println("[volcengine] starting scrape")
 
-	all := map[string]*VEInstance{}
-
-	// Static seeds first.
-	for _, s := range staticSeeds {
-		all[s.InstanceType] = &VEInstance{
-			InstanceType:   s.InstanceType,
-			InstanceFamily: s.Family,
-			PrettyName:     s.PrettyName,
-			VCPU:           s.VCPU,
-			Memory:         s.MemGiB,
-			Arch:           s.Arch,
-			GPU:            s.GPU,
-			GPUModel:       s.GPUModel,
-			Pricing:        map[string]map[string]map[string]string{},
-			Regions:        []string{"cn-beijing", "cn-shanghai"},
+	all, err := fetchAnonymousSpecs()
+	if err != nil {
+		log.Printf("[volcengine] anonymous pricing portal failed: %v — using static seed data", err)
+		all = map[string]*VEInstance{}
+		for _, s := range staticSeeds {
+			all[s.InstanceType] = &VEInstance{
+				InstanceType:   s.InstanceType,
+				InstanceFamily: s.Family,
+				PrettyName:     s.PrettyName,
+				VCPU:           s.VCPU,
+				Memory:         s.MemGiB,
+				Arch:           s.Arch,
+				GPU:            s.GPU,
+				GPUModel:       s.GPUModel,
+				Pricing:        map[string]map[string]map[string]string{},
+				Regions:        []string{"cn-beijing", "cn-shanghai"},
+			}
 		}
+	} else {
+		log.Printf("[volcengine] anonymous pricing portal returned %d instances", len(all))
 	}
 
 	// Enrich from live API if credentials present.
@@ -365,6 +631,10 @@ func DoVolcengineScraping() error {
 		apiInstances := fetchSpecsFromAPI(ak, sk)
 		for k, v := range apiInstances {
 			if existing, ok := all[k]; ok {
+				v.Pricing = existing.Pricing
+				v.AvailabilityZones = existing.AvailabilityZones
+				v.PhysicalProcessor = existing.PhysicalProcessor
+				v.LocalStorage = existing.LocalStorage
 				for _, region := range existing.Regions {
 					v.Regions = utils.AppendUnique(v.Regions, region)
 				}

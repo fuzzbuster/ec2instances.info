@@ -55,24 +55,27 @@ Output directory precedence:
 
 Required credentials:
 
-- `aws`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional
-  `AWS_SESSION_TOKEN`. The credentials need `ec2:DescribeInstanceTypes`.
-- `azure`: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
-  `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`
 - `gcp`: `GCP_PROJECT_ID`, `GCP_CLIENT_EMAIL`, `GCP_PRIVATE_KEY`
 
 Optional credentials:
 
+- `aws`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional
+  `AWS_SESSION_TOKEN`. The credentials need `ec2:DescribeInstanceTypes`.
+- `azure`: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+  `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`
 - `alicloud`: `ALICLOUD_ACCESS_KEY`, `ALICLOUD_SECRET_KEY`
 - `tencentcloud`: `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`
 - `volcengine`: `VOLCENGINE_ACCESS_KEY`, `VOLCENGINE_SECRET_KEY`
 - `huaweicloud`: `HUAWEICLOUD_ACCESS_KEY`, `HUAWEICLOUD_SECRET_KEY`,
   `HUAWEICLOUD_PROJECT_ID`, `HUAWEICLOUD_REGION`
 
-These optional credentials can enrich static seed data. Vultr, Linode,
-DigitalOcean, and Hetzner need no credentials.
+These optional credentials enrich data collected from public or anonymous
+sources. Vultr, Linode, DigitalOcean, and Hetzner need no credentials.
 
-AWS output excludes Spot prices, interruption rates, and Spot savings estimates.
+AWS output includes Linux On-Demand pricing. It excludes Reserved and Spot
+pricing, interruption rates, and Spot savings estimates.
+Azure credentials add Compute SKU capability fields; base specifications and
+regional pricing do not require credentials.
 
 Never print credentials or place them in command arguments. Pass them through
 the process environment.

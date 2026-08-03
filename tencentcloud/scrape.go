@@ -58,15 +58,18 @@ var publicHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // CVMInstance represents a Tencent Cloud CVM instance type.
 type CVMInstance struct {
-	InstanceType       string   `json:"instance_type"`
-	InstanceFamily     string   `json:"instance_family"`
-	PrettyName         string   `json:"pretty_name"`
-	VCPU               int      `json:"vCPU"`
-	Memory             float64  `json:"memory"` // GiB
-	Arch               []string `json:"arch"`
-	GPU                int      `json:"GPU"`
-	GPUModel           string   `json:"GPU_model,omitempty"`
-	NetworkPerformance string   `json:"network_performance"`
+	InstanceType       string              `json:"instance_type"`
+	InstanceFamily     string              `json:"instance_family"`
+	PrettyName         string              `json:"pretty_name"`
+	VCPU               int                 `json:"vCPU"`
+	Memory             float64             `json:"memory"` // GiB
+	Arch               []string            `json:"arch"`
+	GPU                int                 `json:"GPU"`
+	GPUModel           string              `json:"GPU_model,omitempty"`
+	NetworkPerformance string              `json:"network_performance"`
+	PhysicalProcessor  string              `json:"physical_processor,omitempty"`
+	LocalStorage       string              `json:"local_storage,omitempty"`
+	AvailabilityZones  map[string][]string `json:"availability_zones,omitempty"`
 	// Pricing: region → os → price type → price
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	Regions []string                                `json:"regions"`
@@ -200,7 +203,17 @@ type publicInstance struct {
 	GPU                int                 `json:"Gpu"`
 	GPUCount           int                 `json:"GpuCount"`
 	InstanceBandwidth  float64             `json:"InstanceBandwidth"`
+	CPUType            string              `json:"CpuType"`
+	LocalDiskTypeList  []publicLocalDisk   `json:"LocalDiskTypeList"`
+	Status             string              `json:"Status"`
 	Price              publicInstancePrice `json:"Price"`
+}
+
+type publicLocalDisk struct {
+	Type          string `json:"Type"`
+	PartitionType string `json:"PartitionType"`
+	MinSize       int    `json:"MinSize"`
+	MaxSize       int    `json:"MaxSize"`
 }
 
 type publicCVMResponse struct {
@@ -232,7 +245,7 @@ func fetchPublicInstances() (map[string]*CVMInstance, error) {
 			}
 			successfulZones++
 			for _, instanceType := range types {
-				mergePublicInstance(all, region.Region, instanceType)
+				mergePublicInstance(all, region.Region, zone, instanceType)
 			}
 			log.Printf("[tencentcloud] public region %s zone %s: %d records", region.Region, zone, len(types))
 		}
@@ -319,7 +332,7 @@ func uniqueZones(zones []publicZone) []string {
 	return unique
 }
 
-func mergePublicInstance(all map[string]*CVMInstance, region string, source publicInstance) {
+func mergePublicInstance(all map[string]*CVMInstance, region, zone string, source publicInstance) {
 	if source.InstanceType == "" {
 		return
 	}
@@ -342,12 +355,27 @@ func mergePublicInstance(all map[string]*CVMInstance, region string, source publ
 			Arch:               archForPublicInstance(source.Architecture, source.InstanceFamily),
 			GPU:                gpu,
 			NetworkPerformance: formatBandwidth(source.InstanceBandwidth),
+			PhysicalProcessor:  source.CPUType,
+			LocalStorage:       formatLocalStorage(source.LocalDiskTypeList),
+			AvailabilityZones:  map[string][]string{},
 			Pricing:            map[string]map[string]map[string]string{},
 		}
 		all[source.InstanceType] = instance
 	}
+	if instance.PhysicalProcessor == "" {
+		instance.PhysicalProcessor = source.CPUType
+	}
+	if instance.LocalStorage == "" {
+		instance.LocalStorage = formatLocalStorage(source.LocalDiskTypeList)
+	}
+	if instance.AvailabilityZones == nil {
+		instance.AvailabilityZones = map[string][]string{}
+	}
 
 	instance.Regions = utils.AppendUnique(instance.Regions, region)
+	if source.Status == "SELL" {
+		instance.AvailabilityZones[region] = utils.AppendUnique(instance.AvailabilityZones[region], zone)
+	}
 	prices := publicPrices(source)
 	if len(prices) == 0 {
 		return
@@ -409,6 +437,21 @@ func formatBandwidth(bandwidth float64) string {
 		return ""
 	}
 	return strconv.FormatFloat(bandwidth, 'f', -1, 64) + " Gbps"
+}
+
+func formatLocalStorage(disks []publicLocalDisk) string {
+	parts := make([]string, 0, len(disks))
+	for _, disk := range disks {
+		size := disk.MaxSize
+		if size == 0 {
+			size = disk.MinSize
+		}
+		if size == 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %s %d GiB", disk.PartitionType, disk.Type, size))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // ----- CVM API structs -----

@@ -52,24 +52,32 @@ func TestMergePublicInstance(t *testing.T) {
 		CPU:               4,
 		Memory:            8,
 		InstanceBandwidth: 3,
+		CPUType:           "Ampere Altra",
+		LocalDiskTypeList: []publicLocalDisk{{
+			Type:          "LOCAL_BASIC",
+			PartitionType: "DATA",
+			MaxSize:       500,
+		}},
+		Status: "SELL",
 	}
 
 	ondemand := base
 	ondemand.InstanceChargeType = "POSTPAID_BY_HOUR"
 	ondemand.Price.UnitPrice = 0.4
 	ondemand.Price.UnitPriceDiscount = 0.3
-	mergePublicInstance(instances, "ap-nanjing", ondemand)
+	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-1", ondemand)
 
 	lowerPrice := ondemand
 	lowerPrice.Price.UnitPrice = 0.35
 	lowerPrice.Price.UnitPriceDiscount = 0.25
-	mergePublicInstance(instances, "ap-nanjing", lowerPrice)
+	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-1", lowerPrice)
 
 	prepaid := base
 	prepaid.InstanceChargeType = "PREPAID"
 	prepaid.Price.OriginalPrice = 200
 	prepaid.Price.DiscountPrice = 160
-	mergePublicInstance(instances, "ap-shanghai", prepaid)
+	prepaid.Status = "SOLD_OUT"
+	mergePublicInstance(instances, "ap-shanghai", "ap-shanghai-2", prepaid)
 
 	instance := instances[base.InstanceType]
 	if instance == nil {
@@ -83,6 +91,12 @@ func TestMergePublicInstance(t *testing.T) {
 	}
 	if instance.NetworkPerformance != "3 Gbps" {
 		t.Fatalf("network performance = %q", instance.NetworkPerformance)
+	}
+	if instance.PhysicalProcessor != "Ampere Altra" || instance.LocalStorage != "DATA LOCAL_BASIC 500 GiB" {
+		t.Fatalf("hardware details = %q/%q", instance.PhysicalProcessor, instance.LocalStorage)
+	}
+	if !reflect.DeepEqual(instance.AvailabilityZones, map[string][]string{"ap-nanjing": {"ap-nanjing-1"}}) {
+		t.Fatalf("availability zones = %v", instance.AvailabilityZones)
 	}
 	if got := instance.Pricing["ap-nanjing"]["linux"]["ondemand"]; got != "0.35" {
 		t.Fatalf("ondemand price = %q, want 0.35", got)

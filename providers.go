@@ -41,13 +41,12 @@ type providerFailure struct {
 var providers = []provider{
 	{
 		Name:        "aws",
-		RequiredEnv: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"},
-		OptionalEnv: []string{"AWS_SESSION_TOKEN"},
+		OptionalEnv: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"},
 		Run:         aws.DoAwsScraping,
 	},
 	{
 		Name: "azure",
-		RequiredEnv: []string{
+		OptionalEnv: []string{
 			"AZURE_TENANT_ID",
 			"AZURE_CLIENT_ID",
 			"AZURE_CLIENT_SECRET",

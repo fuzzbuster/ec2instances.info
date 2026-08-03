@@ -1,7 +1,6 @@
 package aws
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"runtime"
@@ -148,32 +147,5 @@ func crossRegionDescribeInstanceTypesIterator(pushChunk func(map[string]*ec2Inte
 
 // DoAwsScraping scrapes EC2 virtual-machine data and pricing.
 func DoAwsScraping() error {
-	var rootIndex, chinaIndex awsRootIndexResponse
-	var roots utils.FunctionGroup
-	roots.Add(func() error {
-		if err := loadAwsURLJSON(AWS_NON_CHINA_ROOT_URL, "/offers/v1.0/aws/index.json", &rootIndex); err != nil {
-			return fmt.Errorf("load AWS root index: %w", err)
-		}
-		return nil
-	})
-	roots.Add(func() error {
-		if err := loadAwsURLJSON(AWS_CHINA_ROOT_URL, "/offers/v1.0/cn/index.json", &chinaIndex); err != nil {
-			return fmt.Errorf("load AWS China root index: %w", err)
-		}
-		return nil
-	})
-	if err := roots.Run(); err != nil {
-		return err
-	}
-
-	var group utils.FunctionGroup
-	apiResponses := utils.NewSlowBuildingMap(crossRegionDescribeInstanceTypesIterator)
-	globalChannel, chinaChannel := ec2Internal.Setup(&group, apiResponses)
-	group.Add(func() error {
-		return loadEC2Regions(AWS_NON_CHINA_ROOT_URL, rootIndex, false, globalChannel)
-	})
-	group.Add(func() error {
-		return loadEC2Regions(AWS_CHINA_ROOT_URL, chinaIndex, true, chinaChannel)
-	})
-	return errors.Join(group.Run(), apiResponses.Wait())
+	return scrapeAnonymousEC2()
 }

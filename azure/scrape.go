@@ -90,11 +90,11 @@ func processSpecsDataResult(instances map[string]*AzureInstance, instanceAttrs m
 
 	for _, k := range keysSorted {
 		v := instanceAttrs[k]
-		dashSplit := strings.Split(k, "-")
-		if len(dashSplit) < 2 {
+		instanceType, tier, ok := splitAzureOfferKey(k)
+		if !ok {
 			continue
 		}
-		instance, ok := instances[dashSplit[1]]
+		instance, ok := instances[instanceType]
 		if !ok {
 			instance = &AzureInstance{
 				GPU:               "0",
@@ -102,13 +102,13 @@ func processSpecsDataResult(instances map[string]*AzureInstance, instanceAttrs m
 				AvailabilityZones: make(map[string]any),
 				Pricing:           make(map[string]map[string]map[string]any),
 				AzureSpecsData: AzureSpecsData{
-					InstanceType: dashSplit[1],
+					InstanceType: instanceType,
 					Arch:         []string{},
 				},
 			}
-			instances[dashSplit[1]] = instance
+			instances[instanceType] = instance
 		}
-		if err := enrichAzureInstance(instance, v, specsApiResponse, dashSplit[2]); err != nil {
+		if err := enrichAzureInstance(instance, v, specsApiResponse, tier); err != nil {
 			return err
 		}
 	}
@@ -193,12 +193,11 @@ func processPricingDataResult(
 	pricingResponse map[string]map[string]any,
 ) {
 	for k, respVal := range pricingResponse {
-		keySplit := strings.Split(k, "-")
-		if len(keySplit) < 2 {
+		instanceType, _, ok := splitAzureOfferKey(k)
+		if !ok {
 			continue
 		}
 
-		instanceType := keySplit[1]
 		instance, ok := instancesPricing[instanceType]
 		if !ok {
 			instance = make(map[string]map[string]map[string]any)
@@ -271,6 +270,15 @@ func processPricingDataResult(
 			}
 		}
 	}
+}
+
+func splitAzureOfferKey(key string) (string, string, bool) {
+	firstDash := strings.IndexByte(key, '-')
+	lastDash := strings.LastIndexByte(key, '-')
+	if firstDash < 0 || lastDash <= firstDash+1 || lastDash == len(key)-1 {
+		return "", "", false
+	}
+	return key[firstDash+1 : lastDash], key[lastDash+1:], true
 }
 
 const AZURE_PLATFORM_AND_OS_URL = "https://azure.microsoft.com/api/v3/pricing/virtual-machines/page/{}/?showLowPriorityOffers=true"
@@ -369,6 +377,10 @@ type AzureSpecsApiIteratorResult struct {
 
 func getAzureSpecsApiIterator() *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem] {
 	return utils.NewSlowBuildingMap(func(pushChunk func(map[string]*AzureSpecsApiIteratorItem)) error {
+		if !hasAzureCredentials() {
+			return nil
+		}
+
 		// Get everything we need to start the request.
 		accessToken, err := getAzureAccessToken()
 		if err != nil {
@@ -411,6 +423,13 @@ func getAzureSpecsApiIterator() *utils.SlowBuildingMap[string, *AzureSpecsApiIte
 		// Write the skus to a file.
 		return processRawSkuSpecs(rawSkus)
 	})
+}
+
+func hasAzureCredentials() bool {
+	return os.Getenv("AZURE_TENANT_ID") != "" &&
+		os.Getenv("AZURE_CLIENT_ID") != "" &&
+		os.Getenv("AZURE_CLIENT_SECRET") != "" &&
+		os.Getenv("AZURE_SUBSCRIPTION_ID") != ""
 }
 
 // DoAzureScraping is the main function that scrapes the Azure pricing data and saves it to a file.

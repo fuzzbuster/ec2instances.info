@@ -95,47 +95,7 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 	}
 	instance.PhysicalProcessor = attributes["physicalProcessor"]
 	if hasApiDescription {
-		instance.IsBareMetal = apiDescription.BareMetal
-
-		if apiDescription.ProcessorInfo != nil {
-			instance.Arch = append([]string(nil), apiDescription.ProcessorInfo.SupportedArchitectures...)
-		}
-
-		// Physical core count, per DescribeInstanceTypes VCpuInfo.DefaultCores.
-		// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_VCpuInfo.html
-		if apiDescription.VCpuInfo != nil && apiDescription.VCpuInfo.DefaultCores != nil {
-			cores := int(*apiDescription.VCpuInfo.DefaultCores)
-			instance.Cores = &cores
-		}
-
-		if apiDescription.NetworkInfo != nil {
-			if apiDescription.NetworkInfo.NetworkPerformance == nil {
-				instance.NetworkPerformance = "Unknown"
-			} else if *apiDescription.NetworkInfo.NetworkPerformance != "NA" {
-				instance.NetworkPerformance = *apiDescription.NetworkInfo.NetworkPerformance
-			}
-			if len(apiDescription.NetworkInfo.NetworkCards) > 0 {
-				card := apiDescription.NetworkInfo.NetworkCards[0]
-				instance.BaselineBandwidth = card.BaselineBandwidthInGbps
-				instance.BurstBandwidth = card.PeakBandwidthInGbps
-			}
-		}
-
-		// If AWS omits a field, leave the pointer nil
-		if apiDescription.Hypervisor != "" {
-			nitro := apiDescription.Hypervisor == "nitro"
-			instance.NitroSupport = &nitro
-		}
-		if apiDescription.NitroEnclavesSupport != "" {
-			enclave := apiDescription.NitroEnclavesSupport == "supported"
-			instance.NitroEnclaveSupport = &enclave
-		}
-
-		trueVal := true
-		if strings.Contains(instance.InstanceType, ".metal") {
-			instance.NitroSupport = &trueVal
-		}
-
+		applyAPIInstanceDescription(instance, apiDescription)
 	} else {
 		if instance.Arch == nil {
 			// Try and figure out the value with a best guess
@@ -175,58 +135,6 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 		}
 		instance.GPU = GPU
 	}
-	if hasApiDescription {
-		if instance.FPGA == 0 {
-			// Check if there's any FPGA's
-			if apiDescription.FpgaInfo != nil {
-				for _, fpga := range apiDescription.FpgaInfo.Fpgas {
-					if fpga.Count != nil {
-						instance.FPGA = int(*fpga.Count)
-					}
-				}
-			}
-		}
-
-		if apiDescription.NetworkInfo != nil {
-			if apiDescription.NetworkInfo.EnaSupport == "required" {
-				instance.EBSAsNVMe = true
-			}
-
-			if apiDescription.NetworkInfo.MaximumNetworkInterfaces != nil &&
-				apiDescription.NetworkInfo.Ipv4AddressesPerInterface != nil {
-				instance.VPC = &VPC{
-					MaxENIs:   int(*apiDescription.NetworkInfo.MaximumNetworkInterfaces),
-					IPsPerENI: int(*apiDescription.NetworkInfo.Ipv4AddressesPerInterface),
-				}
-			}
-		}
-
-		if apiDescription.EbsInfo != nil {
-			if apiDescription.EbsInfo.EbsOptimizedInfo != nil {
-				ebsOptimizedInfo := apiDescription.EbsInfo.EbsOptimizedInfo
-				instance.EBSOptimized = true
-				if ebsOptimizedInfo.BaselineThroughputInMBps != nil {
-					instance.EBSBaselineThroughput = *ebsOptimizedInfo.BaselineThroughputInMBps
-				}
-				if ebsOptimizedInfo.BaselineIops != nil {
-					instance.EBSBaselineIOPS = int(*ebsOptimizedInfo.BaselineIops)
-				}
-				if ebsOptimizedInfo.BaselineBandwidthInMbps != nil {
-					instance.EBSBaselineBandwidth = int(*ebsOptimizedInfo.BaselineBandwidthInMbps)
-				}
-				if ebsOptimizedInfo.MaximumThroughputInMBps != nil {
-					instance.EBSThroughput = *ebsOptimizedInfo.MaximumThroughputInMBps
-				}
-				if ebsOptimizedInfo.MaximumIops != nil {
-					instance.EBSIOPS = int(*ebsOptimizedInfo.MaximumIops)
-				}
-				if ebsOptimizedInfo.MaximumBandwidthInMbps != nil {
-					instance.EBSMaxBandwidth = int(*ebsOptimizedInfo.MaximumBandwidthInMbps)
-				}
-			}
-		}
-	}
-
 	ecu := attributes["ecu"]
 	if ecu != "Variable" {
 		ECU, err := strconv.ParseFloat(ecu, 64)
@@ -259,8 +167,80 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 		instance.EnhancedNetworking = true
 	}
 
-	if hasApiDescription {
-		addInstanceStorageDetails(instance, apiDescription)
-	}
 	return nil
+}
+
+func applyAPIInstanceDescription(instance *EC2Instance, description *APIInstanceTypeInfo) {
+	instance.IsBareMetal = description.BareMetal
+	if description.ProcessorInfo != nil {
+		instance.Arch = append([]string(nil), description.ProcessorInfo.SupportedArchitectures...)
+	}
+	if description.VCpuInfo != nil && description.VCpuInfo.DefaultCores != nil {
+		cores := int(*description.VCpuInfo.DefaultCores)
+		instance.Cores = &cores
+	}
+	if description.NetworkInfo != nil {
+		if description.NetworkInfo.NetworkPerformance == nil {
+			instance.NetworkPerformance = "Unknown"
+		} else if *description.NetworkInfo.NetworkPerformance != "NA" {
+			instance.NetworkPerformance = *description.NetworkInfo.NetworkPerformance
+		}
+		if len(description.NetworkInfo.NetworkCards) > 0 {
+			card := description.NetworkInfo.NetworkCards[0]
+			instance.BaselineBandwidth = card.BaselineBandwidthInGbps
+			instance.BurstBandwidth = card.PeakBandwidthInGbps
+		}
+		if description.NetworkInfo.EnaSupport == "required" {
+			instance.EBSAsNVMe = true
+		}
+		if description.NetworkInfo.MaximumNetworkInterfaces != nil &&
+			description.NetworkInfo.Ipv4AddressesPerInterface != nil {
+			instance.VPC = &VPC{
+				MaxENIs:   int(*description.NetworkInfo.MaximumNetworkInterfaces),
+				IPsPerENI: int(*description.NetworkInfo.Ipv4AddressesPerInterface),
+			}
+		}
+	}
+	if description.Hypervisor != "" {
+		nitro := description.Hypervisor == "nitro"
+		instance.NitroSupport = &nitro
+	}
+	if description.NitroEnclavesSupport != "" {
+		enclave := description.NitroEnclavesSupport == "supported"
+		instance.NitroEnclaveSupport = &enclave
+	}
+	if strings.Contains(instance.InstanceType, ".metal") {
+		nitro := true
+		instance.NitroSupport = &nitro
+	}
+	if instance.FPGA == 0 && description.FpgaInfo != nil {
+		for _, fpga := range description.FpgaInfo.Fpgas {
+			if fpga.Count != nil {
+				instance.FPGA = int(*fpga.Count)
+			}
+		}
+	}
+	if description.EbsInfo != nil && description.EbsInfo.EbsOptimizedInfo != nil {
+		ebs := description.EbsInfo.EbsOptimizedInfo
+		instance.EBSOptimized = true
+		if ebs.BaselineThroughputInMBps != nil {
+			instance.EBSBaselineThroughput = *ebs.BaselineThroughputInMBps
+		}
+		if ebs.BaselineIops != nil {
+			instance.EBSBaselineIOPS = int(*ebs.BaselineIops)
+		}
+		if ebs.BaselineBandwidthInMbps != nil {
+			instance.EBSBaselineBandwidth = int(*ebs.BaselineBandwidthInMbps)
+		}
+		if ebs.MaximumThroughputInMBps != nil {
+			instance.EBSThroughput = *ebs.MaximumThroughputInMBps
+		}
+		if ebs.MaximumIops != nil {
+			instance.EBSIOPS = int(*ebs.MaximumIops)
+		}
+		if ebs.MaximumBandwidthInMbps != nil {
+			instance.EBSMaxBandwidth = int(*ebs.MaximumBandwidthInMbps)
+		}
+	}
+	addInstanceStorageDetails(instance, description)
 }

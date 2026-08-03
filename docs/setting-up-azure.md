@@ -2,6 +2,10 @@
 
 **Last Edited:** Astrid Gealer, 17th July 2025
 
+Azure credentials are optional. Without them, the scraper still collects base
+VM specifications and regional pricing from the public Azure pricing API. The
+setup below enables additional Compute SKU capability fields.
+
 Setting up Azure to work with this is quite difficult, but hopefully this guide will help you set it up!
 
 The first thing you want to do is sign up for a new Azure subscription. You can use the free tier from their site. This part varies from region to region.

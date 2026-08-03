@@ -16,18 +16,23 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"github.com/imroc/req/v3"
 	"log"
+	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	outputFilePath = "huaweicloud/instances.json"
+	outputFilePath       = "huaweicloud/instances.json"
+	portalMenuURL        = "https://portal.huaweicloud.com/api/calculator/rest/cbc/portalcalculatornodeservice/v4/api/menuInfo?sign=common&language=zh-cn"
+	portalProductURLBase = "https://portal.huaweicloud.com/api/calculator/rest/cbc/portalcalculatornodeservice/v4/api/productInfo?urlPath=ecs&tag=general.online.portal&region="
 )
 
 // Huawei Cloud regions.
@@ -44,7 +49,10 @@ var huaweiRegions = []string{
 	"na-mexico-1",    // Mexico
 }
 
-var huaweiHTTPClient = req.C().SetTimeout(30 * time.Second).DisableAutoDecode()
+var huaweiHTTPClient = req.C().
+	SetTimeout(30 * time.Second).
+	DisableAutoDecode().
+	SetProxy(http.ProxyFromEnvironment)
 
 // ----- output instance struct -----
 
@@ -58,6 +66,7 @@ type HWInstance struct {
 	Arch           []string `json:"arch"`
 	GPU            int      `json:"GPU"`
 	GPUModel       string   `json:"GPU_model,omitempty"`
+	LocalStorage   string   `json:"local_storage,omitempty"`
 	// Pricing: region → os → {"ondemand": "price"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	Regions []string                                `json:"regions"`
@@ -169,6 +178,196 @@ type hwFlavor struct {
 
 type hwFlavorsResponse struct {
 	Flavors []hwFlavor `json:"flavors"`
+}
+
+// ----- anonymous pricing calculator fetch -----
+
+type portalMenuResponse struct {
+	MenuInfos []struct {
+		URLPath      string `json:"urlPath"`
+		RegionOnline struct {
+			RegionList []string `json:"regionList"`
+		} `json:"regionOnline"`
+	} `json:"menuInfos"`
+}
+
+type portalPlan struct {
+	BillingMode string  `json:"billingMode"`
+	PeriodNum   *int    `json:"periodNum"`
+	Amount      float64 `json:"amount"`
+}
+
+type portalVM struct {
+	ResourceSpecCode string       `json:"resourceSpecCode"`
+	CPU              string       `json:"cpu"`
+	Memory           string       `json:"mem"`
+	InstanceArch     string       `json:"instanceArch"`
+	AcceleratorCard  string       `json:"acceleratorCard"`
+	LocalDisk        string       `json:"localDisk"`
+	Generation       string       `json:"generation"`
+	Spec             string       `json:"spec"`
+	ImageSpec        string       `json:"imageSpec"`
+	PlanList         []portalPlan `json:"planList"`
+}
+
+type portalProductResponse struct {
+	Region  string `json:"region"`
+	Product struct {
+		VMs []portalVM `json:"ec2_vm"`
+	} `json:"product"`
+}
+
+func fetchPortalJSON(url string, dest any) error {
+	resp, err := huaweiHTTPClient.R().
+		SetHeaders(map[string]string{
+			"Accept":  "application/json",
+			"Origin":  "https://www.huaweicloud.com",
+			"Referer": "https://www.huaweicloud.com/pricing/calculator.html",
+		}).
+		Get(url)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+	}
+	return json.Unmarshal(resp.Bytes(), dest)
+}
+
+func fetchPortalRegions() ([]string, error) {
+	var response portalMenuResponse
+	if err := fetchPortalJSON(portalMenuURL, &response); err != nil {
+		return nil, err
+	}
+	for _, menu := range response.MenuInfos {
+		if menu.URLPath == "ecs" {
+			regions := append([]string(nil), menu.RegionOnline.RegionList...)
+			sort.Strings(regions)
+			return regions, nil
+		}
+	}
+	return nil, fmt.Errorf("ECS calculator menu not found")
+}
+
+func fetchSpecsFromPortal() (map[string]*HWInstance, error) {
+	regions, err := fetchPortalRegions()
+	if err != nil {
+		return nil, err
+	}
+
+	all := map[string]*HWInstance{}
+	successfulRegions := 0
+	for _, region := range regions {
+		var response portalProductResponse
+		url := portalProductURLBase + region + "&tab=calc&sign=common"
+		if err := fetchPortalJSON(url, &response); err != nil {
+			log.Printf("[huaweicloud] WARN anonymous region %s: %v", region, err)
+			continue
+		}
+		successfulRegions++
+		for _, vm := range response.Product.VMs {
+			mergePortalVM(all, region, vm)
+		}
+		log.Printf("[huaweicloud] anonymous region %s: %d VM SKUs", region, len(response.Product.VMs))
+	}
+	if successfulRegions == 0 || len(all) == 0 {
+		return nil, fmt.Errorf("anonymous calculator returned no instances from %d successful regions", successfulRegions)
+	}
+	return all, nil
+}
+
+func mergePortalVM(all map[string]*HWInstance, region string, vm portalVM) {
+	if vm.ImageSpec != "linux" || vm.Spec == "" {
+		return
+	}
+	instance := all[vm.Spec]
+	if instance == nil {
+		family := extractFamily(vm.Spec)
+		gpuCount, gpuModel := parseAccelerator(vm.AcceleratorCard)
+		instance = &HWInstance{
+			InstanceType:   vm.Spec,
+			InstanceFamily: family,
+			PrettyName:     prettyName(family),
+			VCPU:           parseLeadingInt(vm.CPU),
+			Memory:         parseLeadingFloat(vm.Memory),
+			Arch:           portalArch(vm.InstanceArch),
+			GPU:            gpuCount,
+			GPUModel:       gpuModel,
+			LocalStorage:   normalizeLocalDisk(vm.LocalDisk),
+			Pricing:        map[string]map[string]map[string]string{},
+		}
+		all[vm.Spec] = instance
+	}
+	instance.Regions = utils.AppendUnique(instance.Regions, region)
+	prices := map[string]string{}
+	for _, plan := range vm.PlanList {
+		key := portalPriceKey(plan)
+		if key != "" && plan.Amount > 0 {
+			prices[key] = strconv.FormatFloat(plan.Amount, 'f', -1, 64)
+		}
+	}
+	if len(prices) > 0 {
+		instance.Pricing[region] = map[string]map[string]string{"linux": prices}
+	}
+}
+
+func portalPriceKey(plan portalPlan) string {
+	switch plan.BillingMode {
+	case "ONDEMAND":
+		return "ondemand"
+	case "MONTHLY":
+		return "monthly"
+	case "YEARLY":
+		if plan.PeriodNum != nil {
+			return fmt.Sprintf("yearly_%d", *plan.PeriodNum)
+		}
+	}
+	return ""
+}
+
+func parseLeadingInt(value string) int {
+	var n int
+	fmt.Sscanf(value, "%d", &n)
+	return n
+}
+
+func parseLeadingFloat(value string) float64 {
+	var n float64
+	fmt.Sscanf(value, "%f", &n)
+	return n
+}
+
+func portalArch(value string) []string {
+	if strings.Contains(strings.ToLower(value), "arm") {
+		return []string{"arm64"}
+	}
+	return []string{"x86_64"}
+}
+
+func parseAccelerator(value string) (int, string) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "0" {
+		return 0, ""
+	}
+	count := parseLeadingInt(value)
+	if count == 0 {
+		count = 1
+	}
+	model := strings.TrimSpace(value)
+	if idx := strings.Index(model, "*"); idx >= 0 {
+		model = strings.TrimSpace(model[idx+1:])
+	}
+	if idx := strings.Index(model, "/"); idx >= 0 {
+		model = strings.TrimSpace(model[:idx])
+	}
+	return count, strings.ReplaceAll(model, "NVIDIAT4", "NVIDIA T4")
+}
+
+func normalizeLocalDisk(value string) string {
+	if value == "0" || value == "" {
+		return ""
+	}
+	return value
 }
 
 // ----- optional API fetch -----
@@ -371,22 +570,26 @@ func prettyName(family string) string {
 func DoHuaweicloudScraping() error {
 	log.Println("[huaweicloud] starting scrape")
 
-	all := map[string]*HWInstance{}
-
-	// Static seeds first.
-	for _, s := range staticSeeds {
-		all[s.InstanceType] = &HWInstance{
-			InstanceType:   s.InstanceType,
-			InstanceFamily: s.Family,
-			PrettyName:     s.PrettyName,
-			VCPU:           s.VCPU,
-			Memory:         s.MemGiB,
-			Arch:           s.Arch,
-			GPU:            s.GPU,
-			GPUModel:       s.GPUModel,
-			Pricing:        map[string]map[string]map[string]string{},
-			Regions:        []string{"cn-north-4", "cn-east-3"},
+	all, err := fetchSpecsFromPortal()
+	if err != nil {
+		log.Printf("[huaweicloud] anonymous calculator failed: %v — using static seed data", err)
+		all = map[string]*HWInstance{}
+		for _, s := range staticSeeds {
+			all[s.InstanceType] = &HWInstance{
+				InstanceType:   s.InstanceType,
+				InstanceFamily: s.Family,
+				PrettyName:     s.PrettyName,
+				VCPU:           s.VCPU,
+				Memory:         s.MemGiB,
+				Arch:           s.Arch,
+				GPU:            s.GPU,
+				GPUModel:       s.GPUModel,
+				Pricing:        map[string]map[string]map[string]string{},
+				Regions:        []string{"cn-north-4", "cn-east-3"},
+			}
 		}
+	} else {
+		log.Printf("[huaweicloud] anonymous calculator returned %d instances", len(all))
 	}
 
 	ak := os.Getenv("HUAWEICLOUD_ACCESS_KEY")
@@ -396,12 +599,19 @@ func DoHuaweicloudScraping() error {
 		log.Println("[huaweicloud] credentials found, fetching live data …")
 		apiInstances := fetchSpecsFromAPI(ak, sk, projectIDs)
 		for k, v := range apiInstances {
+			if existing := all[k]; existing != nil {
+				existing.VCPU = v.VCPU
+				existing.Memory = v.Memory
+				existing.Arch = v.Arch
+				for _, region := range v.Regions {
+					existing.Regions = utils.AppendUnique(existing.Regions, region)
+				}
+				continue
+			}
 			all[k] = v
 		}
 	} else if ak != "" && sk != "" {
-		log.Println("[huaweicloud] credentials found but no region-scoped project IDs configured — using static seed data only")
-	} else {
-		log.Println("[huaweicloud] no credentials — using static seed data only")
+		log.Println("[huaweicloud] credentials found but no region-scoped project IDs configured")
 	}
 
 	sorted := make([]*HWInstance, 0, len(all))

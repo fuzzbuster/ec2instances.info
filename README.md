@@ -59,10 +59,10 @@ Each dataset is written as JSON and as matching `.gz` and `.br` files.
 
 ## Providers
 
-| Provider | Name | Required environment |
+| Provider | Name | Environment |
 | --- | --- | --- |
-| Amazon EC2 | `aws` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional `AWS_SESSION_TOKEN` |
-| Azure Virtual Machines | `azure` | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID` |
+| Amazon EC2 | `aws` | Optional: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` |
+| Azure Virtual Machines | `azure` | Optional: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID` |
 | Google Compute Engine | `gcp` | `GCP_PROJECT_ID`, `GCP_CLIENT_EMAIL`, `GCP_PRIVATE_KEY` |
 | Alibaba Cloud ECS | `alicloud` | Optional: `ALICLOUD_ACCESS_KEY`, `ALICLOUD_SECRET_KEY` |
 | Tencent Cloud CVM | `tencentcloud` | Optional: `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY` |
@@ -73,14 +73,17 @@ Each dataset is written as JSON and as matching `.gz` and `.br` files.
 | DigitalOcean | `digitalocean` | None |
 | Hetzner Cloud | `hetzner` | None |
 
-Optional credentials enrich providers that also contain static seed data.
+Optional credentials enrich data collected from public or anonymous sources.
 
 AWS credentials only need the `ec2:DescribeInstanceTypes` IAM permission. AWS
-output includes instance specifications and non-Spot pricing, but does not
-include Spot prices, interruption rates, or Spot savings estimates. The EC2 API
-request uses the built-in SigV4 Query client and does not depend on the AWS SDK.
+output includes instance specifications and Linux On-Demand pricing, but does
+not include Reserved or Spot pricing, interruption rates, or Spot savings
+estimates. The EC2 API request uses the built-in SigV4 Query client and does not
+depend on the AWS SDK.
+Azure credentials add Compute SKU capability fields; base specifications and
+regional pricing do not require credentials.
 
-See [Azure setup](docs/setting-up-azure.md) and
+See [Azure setup](docs/setting-up-azure.md) for optional SKU enrichment and
 [GCP setup](docs/setting-up-gcp.md) for credential creation.
 
 ## Warning Notifications
