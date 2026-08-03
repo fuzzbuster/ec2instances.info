@@ -15,7 +15,7 @@ Download the archive for Linux or macOS from
 build from source with Go 1.26:
 
 ```sh
-go build -trimpath -o ec2instances .
+make build-local
 ```
 
 Release tags use the `scraper-v<semver>` format. Published targets are:
@@ -127,11 +127,11 @@ Treat any result with `partial: true` as an incomplete snapshot.
 ## Development
 
 ```sh
-test -z "$(gofmt -l .)"
-go vet ./...
-go test ./...
-go build ./...
+make check
 ```
+
+`make check` runs formatting checks, vet, tests, build, and skill metadata
+validation.
 
 The CLI uses only the Go standard library for command parsing. Scraper output
 schemas remain compatible with the original compute-instance datasets.
