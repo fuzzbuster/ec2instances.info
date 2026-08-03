@@ -44,4 +44,8 @@ release-archives:
 			tar -C "$$package_dir" -czf "dist/ec2instances_$${version}_$${os}_$${arch}.tar.gz" \
 				ec2instances LICENSE; \
 		done; \
-		(cd dist && sha256sum ./*.tar.gz > checksums.txt)'
+		if command -v sha256sum >/dev/null 2>&1; then \
+			(cd dist && sha256sum ./*.tar.gz > checksums.txt); \
+		else \
+			(cd dist && shasum -a 256 ./*.tar.gz > checksums.txt); \
+		fi'
