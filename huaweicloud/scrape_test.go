@@ -55,3 +55,33 @@ func TestMergePortalVMIgnoresWindows(t *testing.T) {
 		t.Fatalf("expected Windows SKU to be ignored, got %v", instances)
 	}
 }
+
+func TestPortalPriceKey(t *testing.T) {
+	threeYears := 3
+	tests := []struct {
+		plan portalPlan
+		want string
+	}{
+		{portalPlan{BillingMode: "ONDEMAND"}, "ondemand"},
+		{portalPlan{BillingMode: "MONTHLY"}, "monthly"},
+		{portalPlan{BillingMode: "YEARLY", PeriodNum: &threeYears}, "yearly_3"},
+		{portalPlan{BillingMode: "YEARLY"}, ""},
+		{portalPlan{BillingMode: "UNKNOWN"}, ""},
+	}
+	for _, test := range tests {
+		if got := portalPriceKey(test.plan); got != test.want {
+			t.Errorf("portalPriceKey(%+v) = %q, want %q", test.plan, got, test.want)
+		}
+	}
+}
+
+func TestParseAccelerator(t *testing.T) {
+	count, model := parseAccelerator("2 * NVIDIAT4 / 2 * 16G")
+	if count != 2 || model != "NVIDIA T4" {
+		t.Fatalf("parseAccelerator() = %d, %q", count, model)
+	}
+	count, model = parseAccelerator("")
+	if count != 0 || model != "" {
+		t.Fatalf("empty accelerator = %d, %q", count, model)
+	}
+}

@@ -66,3 +66,27 @@ func TestParsePlansFromPricingHTMLNoPlans(t *testing.T) {
 		t.Fatalf("expected error for page without plans")
 	}
 }
+
+func TestInstanceFamily(t *testing.T) {
+	tests := map[string]string{
+		"g-4vcpu-16gb":  "General Purpose",
+		"c-4":           "CPU-Optimized",
+		"m-4vcpu-32gb":  "Memory-Optimized",
+		"so-2vcpu-16gb": "Storage-Optimized",
+		"s-1vcpu-1gb":   "Basic",
+	}
+	for slug, want := range tests {
+		if got := instanceFamily(slug); got != want {
+			t.Errorf("instanceFamily(%q) = %q, want %q", slug, got, want)
+		}
+	}
+}
+
+func TestNetworkPerformance(t *testing.T) {
+	if got := networkPerformance(2.5); got != "2.5 Gbps" {
+		t.Fatalf("networkPerformance() = %q", got)
+	}
+	if got := networkPerformance(0); got != "Unknown" {
+		t.Fatalf("zero network performance = %q", got)
+	}
+}

@@ -73,7 +73,8 @@ Each dataset is written as JSON and as matching `.gz` and `.br` files.
 | DigitalOcean | `digitalocean` | None |
 | Hetzner Cloud | `hetzner` | None |
 
-Optional credentials enrich data collected from public or anonymous sources.
+Depending on the provider, optional credentials enrich public data or select an
+official API path.
 
 AWS credentials only need the `ec2:DescribeInstanceTypes` IAM permission. AWS
 output includes instance specifications and Linux On-Demand pricing, but does
@@ -85,6 +86,20 @@ regional pricing do not require credentials.
 
 See [Azure setup](docs/setting-up-azure.md) for optional SKU enrichment and
 [GCP setup](docs/setting-up-gcp.md) for credential creation.
+
+Provider-specific anonymous data source documentation:
+
+- [AWS](docs/anonymous-aws.md)
+- [Azure](docs/anonymous-azure.md)
+- [GCP credential requirement](docs/anonymous-gcp.md)
+- [Alibaba Cloud](docs/anonymous-alicloud.md)
+- [Tencent Cloud](docs/anonymous-tencentcloud.md)
+- [Volcengine](docs/anonymous-volcengine.md)
+- [Huawei Cloud](docs/anonymous-huaweicloud.md)
+- [Vultr](docs/anonymous-vultr.md)
+- [Linode](docs/anonymous-linode.md)
+- [DigitalOcean](docs/anonymous-digitalocean.md)
+- [Hetzner](docs/anonymous-hetzner.md)
 
 ## Warning Notifications
 

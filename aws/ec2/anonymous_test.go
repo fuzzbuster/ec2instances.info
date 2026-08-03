@@ -61,3 +61,22 @@ func TestApplyCompactPricing(t *testing.T) {
 		t.Fatalf("unexpected regions: %v", instances["m7g.large"].Regions)
 	}
 }
+
+func TestParseSpecificationDocumentSkipsIncompleteRows(t *testing.T) {
+	document := []byte(`
+<table>
+<thead><tr><th>Instance type</th><th>Memory (GiB)</th><th>Processor</th><th>vCPUs</th></tr></thead>
+<tbody>
+<tr><td>family heading</td><td></td><td></td><td></td></tr>
+<tr><td>m7i.large</td><td>8.00</td><td>Intel Xeon</td></tr>
+</tbody>
+</table>`)
+	instances := map[string]*EC2Instance{}
+
+	if err := parseSpecificationDocument(document, instances); err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != 0 {
+		t.Fatalf("incomplete rows produced instances: %v", instances)
+	}
+}

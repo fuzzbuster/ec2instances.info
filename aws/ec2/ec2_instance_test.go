@@ -1,7 +1,6 @@
 package ec2
 
 import (
-	"github.com/fuzzbuster/ec2instances.info/utils"
 	"testing"
 )
 
@@ -33,38 +32,12 @@ func TestAddExtraDetailsSetsClockSpeedFromMeasuredData(t *testing.T) {
 	}
 }
 
-func TestEnrichEc2InstancePrefersAwsClockSpeedOverExtras(t *testing.T) {
-	instance := &EC2Instance{InstanceType: "m6g.medium"}
-	instance.addExtraDetails()
-
-	ec2ApiResponses := utils.NewSlowBuildingMap[string, *APIInstanceTypeInfo](func(pushChunk func(map[string]*APIInstanceTypeInfo)) error {
-		return nil
-	})
-	enrichEc2Instance(instance, map[string]string{
-		"instanceFamily": "General purpose",
-		"vcpu":           "1",
-		"memory":         "4 GiB",
-		"clockSpeed":     "2.6 GHz",
-		"ecu":            "Variable",
-	}, ec2ApiResponses)
-
-	if instance.ClockSpeedGhz == nil {
-		t.Fatal("ClockSpeedGhz is nil")
-	}
-	if *instance.ClockSpeedGhz != "2.6 GHz" {
-		t.Errorf("ClockSpeedGhz = %q, want AWS pricing value %q", *instance.ClockSpeedGhz, "2.6 GHz")
-	}
-}
-
-func TestEnrichEc2InstanceMapsAPIFields(t *testing.T) {
+func TestApplyAPIInstanceDescription(t *testing.T) {
 	cores := int32(2)
 	maxENIs := int32(3)
 	ipsPerENI := int32(10)
 	baselineNetwork := 1.25
 	peakNetwork := 12.5
-	baselineBandwidth := int32(650)
-	baselineIOPS := int32(3600)
-	baselineThroughput := 81.25
 	maxBandwidth := int32(10000)
 	maxIOPS := int32(40000)
 	maxThroughput := 1250.0
@@ -72,9 +45,10 @@ func TestEnrichEc2InstanceMapsAPIFields(t *testing.T) {
 	diskSize := int64(118)
 	fpgaCount := int32(2)
 	bareMetal := false
+	networkPerformance := "Up to 12.5 Gigabit"
 
-	apiInfo := &APIInstanceTypeInfo{
-		InstanceType:         "m7i.large",
+	instance := &EC2Instance{InstanceType: "m7i.large"}
+	applyAPIInstanceDescription(instance, &APIInstanceTypeInfo{
 		BareMetal:            &bareMetal,
 		Hypervisor:           "nitro",
 		NitroEnclavesSupport: "supported",
@@ -83,7 +57,7 @@ func TestEnrichEc2InstanceMapsAPIFields(t *testing.T) {
 		},
 		VCpuInfo: &APIVCpuInfo{DefaultCores: &cores},
 		NetworkInfo: &APINetworkInfo{
-			NetworkPerformance:        stringPtr("Up to 12.5 Gigabit"),
+			NetworkPerformance:        &networkPerformance,
 			EnaSupport:                "required",
 			MaximumNetworkInterfaces:  &maxENIs,
 			Ipv4AddressesPerInterface: &ipsPerENI,
@@ -94,12 +68,9 @@ func TestEnrichEc2InstanceMapsAPIFields(t *testing.T) {
 		},
 		EbsInfo: &APIEbsInfo{
 			EbsOptimizedInfo: &APIEbsOptimizedInfo{
-				BaselineBandwidthInMbps:  &baselineBandwidth,
-				BaselineIops:             &baselineIOPS,
-				BaselineThroughputInMBps: &baselineThroughput,
-				MaximumBandwidthInMbps:   &maxBandwidth,
-				MaximumIops:              &maxIOPS,
-				MaximumThroughputInMBps:  &maxThroughput,
+				MaximumBandwidthInMbps:  &maxBandwidth,
+				MaximumIops:             &maxIOPS,
+				MaximumThroughputInMBps: &maxThroughput,
 			},
 		},
 		InstanceStorageInfo: &APIInstanceStorageInfo{
@@ -113,17 +84,8 @@ func TestEnrichEc2InstanceMapsAPIFields(t *testing.T) {
 		FpgaInfo: &APIFpgaInfo{
 			Fpgas: []APIFpgaDeviceInfo{{Count: &fpgaCount}},
 		},
-	}
-	responses := utils.NewSlowBuildingMap[string, *APIInstanceTypeInfo](func(pushChunk func(map[string]*APIInstanceTypeInfo)) error {
-		pushChunk(map[string]*APIInstanceTypeInfo{"m7i.large": apiInfo})
-		return nil
 	})
-	instance := &EC2Instance{InstanceType: "m7i.large"}
 
-	err := enrichEc2Instance(instance, baseEnrichmentAttributes(), responses)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(instance.Arch) != 1 || instance.Arch[0] != "x86_64" {
 		t.Fatalf("Arch = %v", instance.Arch)
 	}
@@ -152,36 +114,11 @@ func TestEnrichEc2InstanceMapsAPIFields(t *testing.T) {
 	}
 }
 
-func TestEnrichEc2InstanceAllowsMissingOptionalAPIFields(t *testing.T) {
-	responses := utils.NewSlowBuildingMap[string, *APIInstanceTypeInfo](func(pushChunk func(map[string]*APIInstanceTypeInfo)) error {
-		pushChunk(map[string]*APIInstanceTypeInfo{
-			"m7i.large": {InstanceType: "m7i.large"},
-		})
-		return nil
-	})
+func TestApplyAPIInstanceDescriptionAllowsMissingOptionalFields(t *testing.T) {
 	instance := &EC2Instance{InstanceType: "m7i.large"}
+	applyAPIInstanceDescription(instance, &APIInstanceTypeInfo{})
 
-	if err := enrichEc2Instance(instance, baseEnrichmentAttributes(), responses); err != nil {
-		t.Fatal(err)
-	}
 	if instance.VPC != nil || instance.Storage != nil || instance.Cores != nil {
 		t.Fatalf("unexpected optional fields: VPC=%#v Storage=%#v Cores=%#v", instance.VPC, instance.Storage, instance.Cores)
 	}
-}
-
-func baseEnrichmentAttributes() map[string]string {
-	return map[string]string{
-		"instanceFamily":        "General purpose",
-		"vcpu":                  "2",
-		"memory":                "8 GiB",
-		"physicalProcessor":     "Intel Xeon",
-		"currentGeneration":     "Yes",
-		"ecu":                   "Variable",
-		"processorFeatures":     "",
-		"processorArchitecture": "64-bit",
-	}
-}
-
-func stringPtr(value string) *string {
-	return &value
 }

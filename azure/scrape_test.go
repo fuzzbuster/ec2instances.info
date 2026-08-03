@@ -40,3 +40,39 @@ func TestProcessSpecsDataWithoutManagementAPI(t *testing.T) {
 		t.Fatalf("unexpected anonymous specification: %+v", instance)
 	}
 }
+
+func TestHasAzureCredentialsRequiresCompleteSet(t *testing.T) {
+	for _, key := range []string{
+		"AZURE_TENANT_ID",
+		"AZURE_CLIENT_ID",
+		"AZURE_CLIENT_SECRET",
+		"AZURE_SUBSCRIPTION_ID",
+	} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("AZURE_TENANT_ID", "tenant")
+	if hasAzureCredentials() {
+		t.Fatal("partial Azure credentials were accepted")
+	}
+
+	t.Setenv("AZURE_CLIENT_ID", "client")
+	t.Setenv("AZURE_CLIENT_SECRET", "secret")
+	t.Setenv("AZURE_SUBSCRIPTION_ID", "subscription")
+	if !hasAzureCredentials() {
+		t.Fatal("complete Azure credentials were rejected")
+	}
+}
+
+func TestSpecsIteratorWithoutCredentialsCompletes(t *testing.T) {
+	for _, key := range []string{
+		"AZURE_TENANT_ID",
+		"AZURE_CLIENT_ID",
+		"AZURE_CLIENT_SECRET",
+		"AZURE_SUBSCRIPTION_ID",
+	} {
+		t.Setenv(key, "")
+	}
+	if err := getAzureSpecsApiIterator().Wait(); err != nil {
+		t.Fatalf("anonymous specs iterator returned error: %v", err)
+	}
+}

@@ -1,6 +1,9 @@
 package volcengine
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestMergeAnonymousSpecAndPrice(t *testing.T) {
 	instances := map[string]*VEInstance{}
@@ -69,5 +72,35 @@ func TestMergeAnonymousPriceHourly(t *testing.T) {
 	})
 	if got := instances["ecs.c3a.large"].Pricing["cn-shanghai"]["linux"]["ondemand"]; got != "0.42" {
 		t.Fatalf("unexpected ondemand price %q", got)
+	}
+}
+
+func TestAnonymousPriceKey(t *testing.T) {
+	tests := []struct {
+		period string
+		times  int
+		want   string
+	}{
+		{"hourly", 1, "ondemand"},
+		{"monthly", 1, "monthly"},
+		{"monthly", 12, "yearly_1"},
+		{"monthly", 36, "yearly_3"},
+		{"daily", 1, ""},
+	}
+	for _, test := range tests {
+		if got := anonymousPriceKey(test.period, test.times); got != test.want {
+			t.Errorf("anonymousPriceKey(%q, %d) = %q, want %q", test.period, test.times, got, test.want)
+		}
+	}
+}
+
+func TestDecodeAnonymousZones(t *testing.T) {
+	got := decodeAnonymousZones(`[{"ZoneCode":"cn-beijing-a"},{"ZoneCode":""},{"ZoneCode":"cn-beijing-b"}]`)
+	want := []string{"cn-beijing-a", "cn-beijing-b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("decodeAnonymousZones() = %v, want %v", got, want)
+	}
+	if got := decodeAnonymousZones(`not-json`); got != nil {
+		t.Fatalf("invalid zones = %v, want nil", got)
 	}
 }

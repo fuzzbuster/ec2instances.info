@@ -27,6 +27,18 @@ func TestPostPublicJSON(t *testing.T) {
 	}
 }
 
+func TestPostPublicJSONRejectsNonOKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Error(writer, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	var response publicRegionsResponse
+	if err := postPublicJSON(server.URL, nil, &response); err == nil {
+		t.Fatal("expected non-200 response to fail")
+	}
+}
+
 func TestUniqueZones(t *testing.T) {
 	zones := []publicZone{
 		{Zone: "ap-nanjing-1"},
@@ -106,5 +118,13 @@ func TestMergePublicInstance(t *testing.T) {
 	}
 	if got := instance.Pricing["ap-shanghai"]["linux"]["monthly"]; got != "200" {
 		t.Fatalf("monthly price = %q, want 200", got)
+	}
+}
+
+func TestMergePublicInstanceIgnoresMissingType(t *testing.T) {
+	instances := map[string]*CVMInstance{}
+	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-1", publicInstance{})
+	if len(instances) != 0 {
+		t.Fatalf("missing instance type produced output: %v", instances)
 	}
 }

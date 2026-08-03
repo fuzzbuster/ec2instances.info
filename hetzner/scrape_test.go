@@ -89,3 +89,30 @@ func TestHourlyPriceRejectsInvalidPrices(t *testing.T) {
 		t.Fatal("expected invalid prices to return an error")
 	}
 }
+
+func TestArchitecture(t *testing.T) {
+	for _, value := range []string{"ARM64", "Ampere Altra"} {
+		got := architecture(value)
+		if len(got) != 1 || got[0] != "arm64" {
+			t.Errorf("architecture(%q) = %v, want arm64", value, got)
+		}
+	}
+	got := architecture("AMD EPYC")
+	if len(got) != 1 || got[0] != "x86_64" {
+		t.Fatalf("architecture(AMD EPYC) = %v, want x86_64", got)
+	}
+}
+
+func TestHourlyPricePrefersHourly(t *testing.T) {
+	var location PriceLocation
+	location.Prices.Hourly.USD = "0.012"
+	location.Prices.Monthly.USD = "73"
+
+	got, err := hourlyPrice(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 0.012 {
+		t.Fatalf("hourly price = %v, want 0.012", got)
+	}
+}
