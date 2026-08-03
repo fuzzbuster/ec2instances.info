@@ -35,7 +35,7 @@ import (
 const (
 	intlPricingURL = "https://g.alicdn.com/aliyun/ecs-price-info-intl/2.0.8/price/download/instancePrice.json"
 	cnPricingURL   = "https://g.alicdn.com/aliyun/ecs-price-info/2.0.8/price/download/instancePrice.json"
-	outputFilePath = "../www/alicloud/instances.json"
+	outputFilePath = "www/alicloud/instances.json"
 )
 
 // ----- pricing response structs -----
@@ -86,18 +86,18 @@ type AliInstance struct {
 
 // sizeVCPU maps Alibaba ECS size suffixes to their vCPU count.
 var sizeVCPU = map[string]int{
-	"nano":    1,
-	"micro":   1,
-	"small":   1,
-	"medium":  2,
-	"large":   2,
-	"xlarge":  4,
-	"2xlarge": 8,
-	"3xlarge": 12,
-	"4xlarge": 16,
-	"6xlarge": 24,
-	"7xlarge": 28,
-	"8xlarge": 32,
+	"nano":     1,
+	"micro":    1,
+	"small":    1,
+	"medium":   2,
+	"large":    2,
+	"xlarge":   4,
+	"2xlarge":  8,
+	"3xlarge":  12,
+	"4xlarge":  16,
+	"6xlarge":  24,
+	"7xlarge":  28,
+	"8xlarge":  32,
 	"12xlarge": 48,
 	"13xlarge": 52,
 	"14xlarge": 56,
@@ -108,39 +108,63 @@ var sizeVCPU = map[string]int{
 
 // familyRatios maps normalised family prefix to GiB-per-vCPU memory ratio.
 var familyRatios = map[string]float64{
-	"g":   4, // General purpose
-	"u":   4,
-	"c":   2, // Compute optimised
-	"hfc": 2,
-	"r":   8, // Memory optimised
-	"re":  26,
-	"hfr": 8,
-	"hfg": 4, // High frequency general
-	"d":   4, // Big data / storage
-	"i":   4, // Local NVMe SSD
-	"gn":  4, // GPU
-	"vgn": 4,
-	"ebm": 4, // Bare metal
-	"sn1": 2,
-	"sn2": 4,
-	"se":  4,
-	"t":   1,  // Burstable
-	"n":   4,
-	"e":   4,
+	"g":      4, // General purpose
+	"u":      4,
+	"c":      2, // Compute optimised
+	"hfc":    2,
+	"r":      8, // Memory optimised
+	"re":     26,
+	"hfr":    8,
+	"hfg":    4, // High frequency general
+	"d":      4, // Big data / storage
+	"i":      4, // Local NVMe SSD
+	"gn":     4, // GPU
+	"vgn":    4,
+	"ebm":    4, // Bare metal
+	"sn1":    2,
+	"sn2":    4,
+	"se":     4,
+	"t":      1, // Burstable
+	"n":      4,
+	"e":      4,
+	"ic":     2, // Compute intensive (Intel)
+	"ce":     2, // Compute entry-level
+	"cm":     2, // Compute memory
+	"ebmc":   2, // Bare metal compute
+	"ebmg":   4, // Bare metal general
+	"ebmhfg": 4, // Bare metal high freq general
+	"mn":     4, // Shared
+	"xn":     4, // Shared
+	"sccg":   4, // SCC general
+	"scch":   2, // SCC compute
+	"f":      4, // FPGA
+	"ga":     4, // General purpose AMD
 }
 
 var familyArchMap = map[string][]string{
-	"g":   {"x86_64"},
-	"c":   {"x86_64"},
-	"r":   {"x86_64"},
-	"gn":  {"x86_64"},
-	"vgn": {"x86_64"},
-	"d":   {"x86_64"},
-	"i":   {"x86_64"},
-	"t":   {"x86_64"},
-	"hfc": {"x86_64"},
-	"hfg": {"x86_64"},
-	"hfr": {"x86_64"},
+	"g":      {"x86_64"},
+	"c":      {"x86_64"},
+	"r":      {"x86_64"},
+	"gn":     {"x86_64"},
+	"vgn":    {"x86_64"},
+	"d":      {"x86_64"},
+	"i":      {"x86_64"},
+	"t":      {"x86_64"},
+	"hfc":    {"x86_64"},
+	"hfg":    {"x86_64"},
+	"hfr":    {"x86_64"},
+	"ic":     {"x86_64"},
+	"ce":     {"x86_64"},
+	"cm":     {"x86_64"},
+	"ebmc":   {"x86_64"},
+	"ebmg":   {"x86_64"},
+	"ebmhfg": {"x86_64"},
+	"mn":     {"x86_64"},
+	"xn":     {"x86_64"},
+	"sccg":   {"x86_64"},
+	"scch":   {"x86_64"},
+	"f":      {"x86_64"},
+	"ga":     {"x86_64"},
 }
 
 var familyGPUMap = map[string]int{
@@ -149,24 +173,36 @@ var familyGPUMap = map[string]int{
 }
 
 var familyPrettyNames = map[string]string{
-	"g":   "General Purpose",
-	"c":   "Compute Optimized",
-	"r":   "Memory Optimized",
-	"d":   "Big Data / Storage Optimized",
-	"i":   "Local NVMe SSD",
-	"gn":  "GPU / Heterogeneous",
-	"vgn": "GPU Virtual",
-	"t":   "Burstable",
-	"sn1": "Shared Compute",
-	"sn2": "Shared General",
-	"hfc": "High Clock Speed Compute",
-	"hfg": "High Clock Speed General",
-	"hfr": "High Clock Speed Memory",
-	"ebm": "Bare Metal",
-	"se":  "Super Large Memory",
-	"re":  "High Ratio Memory",
-	"n":   "Entry-Level",
-	"e":   "Shared Entry-Level",
+	"g":      "General Purpose",
+	"c":      "Compute Optimized",
+	"r":      "Memory Optimized",
+	"d":      "Big Data / Storage Optimized",
+	"i":      "Local NVMe SSD",
+	"gn":     "GPU / Heterogeneous",
+	"vgn":    "GPU Virtual",
+	"t":      "Burstable",
+	"sn1":    "Shared Compute",
+	"sn2":    "Shared General",
+	"hfc":    "High Clock Speed Compute",
+	"hfg":    "High Clock Speed General",
+	"hfr":    "High Clock Speed Memory",
+	"ebm":    "Bare Metal",
+	"se":     "Super Large Memory",
+	"re":     "High Ratio Memory",
+	"n":      "Entry-Level",
+	"e":      "Shared Entry-Level",
+	"ic":     "Compute Intensive (Intel)",
+	"ce":     "Compute Entry-Level",
+	"cm":     "Compute Memory",
+	"ebmc":   "Bare Metal Compute",
+	"ebmg":   "Bare Metal General",
+	"ebmhfg": "Bare Metal High Clock Speed General",
+	"mn":     "Shared General",
+	"xn":     "Shared General",
+	"sccg":   "Super Computing Cluster General",
+	"scch":   "Super Computing Cluster Compute",
+	"f":      "FPGA Accelerated",
+	"ga":     "General Purpose AMD",
 }
 
 // stripGenSuffix removes trailing digits and 2-char enhancement suffixes
@@ -174,16 +210,30 @@ var familyPrettyNames = map[string]string{
 // e.g. "g6ne" → "g", "hfc5" → "hfc", "sn1ne" → "sn1"
 func stripGenSuffix(family string) string {
 	s := family
-	for _, sfx := range []string{"ne", "xe", "se", "ve"} {
+	for _, sfx := range []string{"ne", "xe", "se", "ve", "is", "a", "i", "t", "e", "v", "s"} {
 		if strings.HasSuffix(s, sfx) {
 			s = s[:len(s)-len(sfx)]
 			break
 		}
 	}
+	if _, ok := familyRatios[s]; ok {
+		return s
+	}
 	for len(s) > 0 && s[len(s)-1] >= '0' && s[len(s)-1] <= '9' {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+// normalizeFamily strips the -c encoding suffix and generation/enhancement suffixes,
+// returning the base family for map lookups.
+func normalizeFamily(family string) string {
+	if dashIdx := strings.Index(family, "-c"); dashIdx >= 0 {
+		family = family[:dashIdx]
+	} else if dashIdx := strings.Index(family, "-lc"); dashIdx >= 0 {
+		family = family[:dashIdx]
+	}
+	return stripGenSuffix(family)
 }
 
 // guessSpec attempts to parse vCPU and Memory (GiB) from the instance type name.
@@ -196,7 +246,7 @@ func guessSpec(instanceType string) (vcpu int, memGiB float64, ok bool) {
 	family := name[:dotIdx]
 	size := name[dotIdx+1:]
 
-	// Handle explicit cpu/memory encoding, e.g. ecs.t5-c1m1.large
+	// handle explicit cpu/memory encoding, e.g. ecs.t5-c1m1.large, ecs.t5-lc1m1.small
 	if dashIdx := strings.LastIndex(family, "-c"); dashIdx >= 0 {
 		var cpu, mem int
 		if n, _ := fmt.Sscanf(family[dashIdx+2:], "%dm%d", &cpu, &mem); n == 2 {
@@ -204,6 +254,15 @@ func guessSpec(instanceType string) (vcpu int, memGiB float64, ok bool) {
 				return cpu * sv, float64(mem * sv), true
 			}
 		}
+		family = family[:dashIdx]
+	} else if dashIdx := strings.LastIndex(family, "-lc"); dashIdx >= 0 {
+		var cpu, mem int
+		if n, _ := fmt.Sscanf(family[dashIdx+3:], "%dm%d", &cpu, &mem); n == 2 {
+			if sv, ok2 := sizeVCPU[size]; ok2 {
+				return cpu * sv, float64(mem * sv), true
+			}
+		}
+		family = family[:dashIdx]
 	}
 
 	sv, ok2 := sizeVCPU[size]
@@ -220,21 +279,18 @@ func guessSpec(instanceType string) (vcpu int, memGiB float64, ok bool) {
 }
 
 func lookupArch(family string) []string {
-	base := stripGenSuffix(family)
-	if a, ok := familyArchMap[base]; ok {
+	if a, ok := familyArchMap[family]; ok {
 		return a
 	}
 	return []string{"x86_64"}
 }
 
 func lookupGPU(family string) int {
-	base := stripGenSuffix(family)
-	return familyGPUMap[base]
+	return familyGPUMap[family]
 }
 
 func lookupPrettyName(family string) string {
-	base := stripGenSuffix(family)
-	if p, ok := familyPrettyNames[base]; ok {
+	if p, ok := familyPrettyNames[family]; ok {
 		return p
 	}
 	return "Alibaba Cloud ECS"
@@ -330,13 +386,14 @@ func describeInstanceTypes(ak, sk string) (map[string]*AliInstance, error) {
 		}
 
 		for _, it := range resp.InstanceTypes.InstanceType {
+			cleanFamily := normalizeFamily(it.InstanceTypeFamily)
 			inst := &AliInstance{
 				InstanceType:   it.InstanceTypeID,
 				InstanceFamily: it.InstanceTypeFamily,
-				PrettyName:     lookupPrettyName(it.InstanceTypeFamily),
+				PrettyName:     lookupPrettyName(cleanFamily),
 				VCPU:           it.CpuCoreCount,
 				Memory:         it.MemorySize,
-				Arch:           lookupArch(it.InstanceTypeFamily),
+				Arch:           lookupArch(cleanFamily),
 				GPU:            it.GPUAmount,
 			}
 			out[it.InstanceTypeID] = inst
@@ -461,7 +518,7 @@ func buildInstances(intl, cn pricingFile, apiSpecs map[string]*AliInstance) map[
 			if len(entry.Hours) > 0 {
 				inst.Pricing[region][osLabel]["ondemand"] = entry.Hours[0].Price
 			}
-			inst.Regions = appendUnique(inst.Regions, region)
+			inst.Regions = utils.AppendUnique(inst.Regions, region)
 		}
 	}
 
@@ -483,21 +540,13 @@ func newInstance(itype string, apiSpecs map[string]*AliInstance) *AliInstance {
 	} else {
 		inst.InstanceFamily = name
 	}
-	inst.PrettyName = lookupPrettyName(inst.InstanceFamily)
-	inst.Arch = lookupArch(inst.InstanceFamily)
-	inst.GPU = lookupGPU(inst.InstanceFamily)
+	cleanFamily := normalizeFamily(inst.InstanceFamily)
+	inst.PrettyName = lookupPrettyName(cleanFamily)
+	inst.Arch = lookupArch(cleanFamily)
+	inst.GPU = lookupGPU(cleanFamily)
 	if vcpu, memGiB, ok := guessSpec(itype); ok {
 		inst.VCPU = vcpu
 		inst.Memory = memGiB
 	}
 	return inst
-}
-
-func appendUnique(s []string, v string) []string {
-	for _, x := range s {
-		if x == v {
-			return s
-		}
-	}
-	return append(s, v)
 }

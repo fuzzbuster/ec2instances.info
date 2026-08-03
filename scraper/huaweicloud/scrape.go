@@ -5,8 +5,8 @@
 //  1. Static seed data for all well-known flavor families (s, c, m, x, pi, p series).
 //     Spec data: https://support.huaweicloud.com/intl/en-us/productdesc-ecs/ecs_01_0014.html
 //
-//  2. When HUAWEICLOUD_ACCESS_KEY / HUAWEICLOUD_SECRET_KEY / HUAWEICLOUD_PROJECT_ID
-//     are set, the ECS ListFlavors API is called per region.
+//  2. When HUAWEICLOUD_ACCESS_KEY / HUAWEICLOUD_SECRET_KEY and region-scoped
+//     project IDs are set, the ECS ListFlavors API is called per region.
 //     API reference: https://support.huaweicloud.com/intl/en-us/api-ecs/en-us_topic_0020212656.html
 //
 // No credentials are required to produce output — static seed covers GA flavors.
@@ -28,21 +28,21 @@ import (
 )
 
 const (
-	outputFilePath = "../www/huaweicloud/instances.json"
+	outputFilePath = "www/huaweicloud/instances.json"
 )
 
 // Huawei Cloud regions.
 var huaweiRegions = []string{
-	"cn-north-4",   // Beijing 4
-	"cn-east-3",    // Shanghai 1
-	"cn-south-1",   // Guangzhou
-	"cn-east-2",    // East 2 (Shanghai 2)
-	"cn-north-1",   // North 1 (Beijing 1)
+	"cn-north-4",     // Beijing 4
+	"cn-east-3",      // Shanghai 1
+	"cn-south-1",     // Guangzhou
+	"cn-east-2",      // East 2 (Shanghai 2)
+	"cn-north-1",     // North 1 (Beijing 1)
 	"cn-southwest-2", // Guizhou
 	"ap-southeast-1", // Hong Kong
 	"ap-southeast-2", // Bangkok
 	"ap-southeast-3", // Singapore
-	"na-mexico-1",  // Mexico
+	"na-mexico-1",    // Mexico
 }
 
 // ----- output instance struct -----
@@ -59,7 +59,7 @@ type HWInstance struct {
 	GPUModel       string   `json:"GPU_model,omitempty"`
 	// Pricing: region → os → {"ondemand": "price"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
-	Regions []string                                 `json:"regions"`
+	Regions []string                                `json:"regions"`
 }
 
 // ----- static seed data -----
@@ -172,9 +172,13 @@ type hwFlavorsResponse struct {
 
 // ----- optional API fetch -----
 
-func fetchSpecsFromAPI(ak, sk, projectID string) map[string]*HWInstance {
+func fetchSpecsFromAPI(ak, sk string, projectIDs map[string]string) map[string]*HWInstance {
 	all := map[string]*HWInstance{}
 	for _, region := range huaweiRegions {
+		projectID := projectIDs[region]
+		if projectID == "" {
+			continue
+		}
 		flavors, err := listFlavors(ak, sk, projectID, region)
 		if err != nil {
 			log.Printf("[huaweicloud] WARN region %s: %v", region, err)
@@ -201,7 +205,7 @@ func fetchSpecsFromAPI(ak, sk, projectID string) map[string]*HWInstance {
 				}
 				all[itype] = inst
 			}
-			inst.Regions = appendUnique(inst.Regions, region)
+			inst.Regions = utils.AppendUnique(inst.Regions, region)
 		}
 		log.Printf("[huaweicloud] region %s: %d flavors", region, len(flavors))
 	}
@@ -212,7 +216,7 @@ func listFlavors(ak, sk, projectID, region string) ([]hwFlavor, error) {
 	endpoint := fmt.Sprintf("https://ecs.%s.myhuaweicloud.com/v1/%s/cloudservers/flavors", region, projectID)
 
 	timestamp := time.Now().UTC()
-	authHeader, err := hwSignRequest(ak, sk, "GET", endpoint, "", region, timestamp)
+	authHeader, sdkDate, err := hwSignRequest(ak, sk, "GET", endpoint, "", region, timestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +224,7 @@ func listFlavors(ak, sk, projectID, region string) ([]hwFlavor, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest("GET", endpoint, nil)
 	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("X-Auth-Token", "") // not used with AK/SK
+	req.Header.Set("X-Sdk-Date", sdkDate)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -242,7 +246,7 @@ func listFlavors(ak, sk, projectID, region string) ([]hwFlavor, error) {
 
 // hwSignRequest implements Huawei Cloud AKSK authentication (HMAC-SHA256).
 // Reference: https://support.huaweicloud.com/intl/en-us/api-ecs/ecs_03_0010.html
-func hwSignRequest(ak, sk, method, endpoint, body, region string, t time.Time) (string, error) {
+func hwSignRequest(ak, sk, method, endpoint, body, region string, t time.Time) (string, string, error) {
 	datetime := t.Format("20060102T150405Z")
 	date := t.Format("20060102")
 
@@ -272,7 +276,30 @@ func hwSignRequest(ak, sk, method, endpoint, body, region string, t time.Time) (
 	return fmt.Sprintf(
 		"SDK-HMAC-SHA256 Access=%s, SignedHeaders=%s, Signature=%s",
 		ak, signedHeaders, signature,
-	), nil
+	), datetime, nil
+}
+
+func huaweiProjectIDEnv(region string) string {
+	return "HUAWEICLOUD_PROJECT_ID_" + strings.ToUpper(strings.ReplaceAll(region, "-", "_"))
+}
+
+func collectHuaweiProjectIDs() map[string]string {
+	projectIDs := map[string]string{}
+	for _, region := range huaweiRegions {
+		if projectID := os.Getenv(huaweiProjectIDEnv(region)); projectID != "" {
+			projectIDs[region] = projectID
+		}
+	}
+
+	projectID := os.Getenv("HUAWEICLOUD_PROJECT_ID")
+	region := os.Getenv("HUAWEICLOUD_REGION")
+	if projectID != "" && region != "" {
+		projectIDs[region] = projectID
+	}
+	if projectID != "" && region == "" && len(projectIDs) == 0 {
+		log.Println("[huaweicloud] HUAWEICLOUD_PROJECT_ID set without HUAWEICLOUD_REGION; skipping live API to avoid cross-region project reuse")
+	}
+	return projectIDs
 }
 
 func hashSHA256(s string) string {
@@ -342,21 +369,11 @@ func prettyName(family string) string {
 	return "Huawei Cloud ECS " + strings.ToUpper(family)
 }
 
-func appendUnique(s []string, v string) []string {
-	for _, x := range s {
-		if x == v {
-			return s
-		}
-	}
-	return append(s, v)
-}
-
 // ----- main entry point -----
 
 // DoHuaweicloudScraping is called from main.go.
 func DoHuaweicloudScraping() {
 	log.Println("[huaweicloud] starting scrape")
-	_ = utils.SaveInstances // ensure utils is referenced
 
 	all := map[string]*HWInstance{}
 
@@ -378,13 +395,15 @@ func DoHuaweicloudScraping() {
 
 	ak := os.Getenv("HUAWEICLOUD_ACCESS_KEY")
 	sk := os.Getenv("HUAWEICLOUD_SECRET_KEY")
-	projectID := os.Getenv("HUAWEICLOUD_PROJECT_ID")
-	if ak != "" && sk != "" && projectID != "" {
+	projectIDs := collectHuaweiProjectIDs()
+	if ak != "" && sk != "" && len(projectIDs) > 0 {
 		log.Println("[huaweicloud] credentials found, fetching live data …")
-		apiInstances := fetchSpecsFromAPI(ak, sk, projectID)
+		apiInstances := fetchSpecsFromAPI(ak, sk, projectIDs)
 		for k, v := range apiInstances {
 			all[k] = v
 		}
+	} else if ak != "" && sk != "" {
+		log.Println("[huaweicloud] credentials found but no region-scoped project IDs configured — using static seed data only")
 	} else {
 		log.Println("[huaweicloud] no credentials — using static seed data only")
 	}

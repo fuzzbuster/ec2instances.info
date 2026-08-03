@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	outputFilePath = "../www/volcengine/instances.json"
+	outputFilePath = "www/volcengine/instances.json"
 	ecsAPIHost     = "open.volcengineapi.com"
 	ecsAPIRegion   = "cn-beijing" // service endpoint region
 	ecsService     = "ecs"
@@ -57,7 +57,7 @@ type VEInstance struct {
 	GPUModel       string   `json:"GPU_model,omitempty"`
 	// Pricing: region → os → {"ondemand": "price"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
-	Regions []string                                 `json:"regions"`
+	Regions []string                                `json:"regions"`
 }
 
 // ----- static seed data -----
@@ -143,13 +143,13 @@ type veMemory struct {
 }
 
 type veInstanceType struct {
-	InstanceTypeId     *string     `json:"InstanceTypeId"`
-	InstanceTypeFamily *string     `json:"InstanceTypeFamily"`
+	InstanceTypeId     *string      `json:"InstanceTypeId"`
+	InstanceTypeFamily *string      `json:"InstanceTypeFamily"`
 	Processor          *veProcessor `json:"Processor"`
 	Memory             *veMemory    `json:"Memory"`
 	GPU                *struct {
 		GPUDevices []struct {
-			Count     *int32  `json:"Count"`
+			Count       *int32  `json:"Count"`
 			ProductName *string `json:"ProductName"`
 		} `json:"GPUDevices"`
 	} `json:"GPU"`
@@ -260,8 +260,8 @@ func signVERequest(ak, sk, method, host, path, rawQuery, body string, t time.Tim
 
 	payloadHash := hashSHA256("")
 	headers := map[string]string{
-		"X-Date":          datetime,
-		"Host":            host,
+		"X-Date":           datetime,
+		"Host":             host,
 		"X-Content-Sha256": payloadHash,
 	}
 
@@ -337,21 +337,11 @@ func prettyName(family string) string {
 	return "Volcengine ECS " + strings.ToUpper(family)
 }
 
-func appendUnique(s []string, v string) []string {
-	for _, x := range s {
-		if x == v {
-			return s
-		}
-	}
-	return append(s, v)
-}
-
 // ----- main entry point -----
 
 // DoVolcengineScraping is called from main.go.
 func DoVolcengineScraping() {
 	log.Println("[volcengine] starting scrape")
-	_ = utils.SaveInstances // ensure utils is referenced
 
 	all := map[string]*VEInstance{}
 
@@ -378,9 +368,10 @@ func DoVolcengineScraping() {
 		log.Println("[volcengine] credentials found, fetching live data …")
 		apiInstances := fetchSpecsFromAPI(ak, sk)
 		for k, v := range apiInstances {
-			// Assign a representative region list if none.
-			if len(v.Regions) == 0 {
-				v.Regions = volcengineRegions[:1]
+			if existing, ok := all[k]; ok {
+				for _, region := range existing.Regions {
+					v.Regions = utils.AppendUnique(v.Regions, region)
+				}
 			}
 			all[k] = v
 		}

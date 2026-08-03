@@ -27,3 +27,13 @@ func SaveInstances(sortedInstances any, fp string) {
 
 	WriteAndCompressFile(fp, []byte(jsonS))
 }
+
+// AppendUnique appends v to s if v is not already present.
+func AppendUnique(s []string, v string) []string {
+	for _, x := range s {
+		if x == v {
+			return s
+		}
+	}
+	return append(s, v)
+}

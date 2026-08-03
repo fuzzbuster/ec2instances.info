@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	outputFilePath = "../www/tencentcloud/instances.json"
+	outputFilePath = "www/tencentcloud/instances.json"
 	// CVM API endpoint (international)
 	cvmAPIEndpoint = "https://cvm.tencentcloudapi.com"
 	// Regions to scrape when using the signed API
@@ -47,114 +47,115 @@ var tencentRegions = []string{
 
 // CVMInstance represents a Tencent Cloud CVM instance type.
 type CVMInstance struct {
-	InstanceType   string   `json:"instance_type"`
-	InstanceFamily string   `json:"instance_family"`
-	PrettyName     string   `json:"pretty_name"`
-	VCPU           int      `json:"vCPU"`
-	Memory         float64  `json:"memory"` // GiB
-	Arch           []string `json:"arch"`
-	GPU            int      `json:"GPU"`
-	GPUModel       string   `json:"GPU_model,omitempty"`
-	NetworkPerformance string `json:"network_performance"`
+	InstanceType       string   `json:"instance_type"`
+	InstanceFamily     string   `json:"instance_family"`
+	PrettyName         string   `json:"pretty_name"`
+	VCPU               int      `json:"vCPU"`
+	Memory             float64  `json:"memory"` // GiB
+	Arch               []string `json:"arch"`
+	GPU                int      `json:"GPU"`
+	GPUModel           string   `json:"GPU_model,omitempty"`
+	NetworkPerformance string   `json:"network_performance"`
 	// Pricing: region → os → {"ondemand": "price"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
-	Regions []string                                 `json:"regions"`
+	Regions []string                                `json:"regions"`
 }
 
 // ----- static seed data -----
 // Source: https://www.tencentcloud.com/document/product/213/11518
 // Each entry: {instanceType, vcpu, memGiB, family, prettyName, arch, gpu}
 type seedEntry struct {
-	InstanceType   string
-	VCPU           int
-	MemGiB         float64
-	Family         string
-	PrettyName     string
-	Arch           []string
-	GPU            int
+	InstanceType string
+	VCPU         int
+	MemGiB       float64
+	Family       string
+	PrettyName   string
+	Arch         []string
+	GPU          int
+	GPUModel     string
 }
 
 var staticSeeds = []seedEntry{
 	// Standard S series
-	{"S1.SMALL1", 1, 1, "S1", "Standard S1", []string{"x86_64"}, 0},
-	{"S1.SMALL2", 1, 2, "S1", "Standard S1", []string{"x86_64"}, 0},
-	{"S1.MEDIUM4", 2, 4, "S1", "Standard S1", []string{"x86_64"}, 0},
-	{"S1.LARGE8", 4, 8, "S1", "Standard S1", []string{"x86_64"}, 0},
-	{"S1.XLARGE16", 8, 16, "S1", "Standard S1", []string{"x86_64"}, 0},
-	{"S2.SMALL1", 1, 1, "S2", "Standard S2", []string{"x86_64"}, 0},
-	{"S2.SMALL2", 1, 2, "S2", "Standard S2", []string{"x86_64"}, 0},
-	{"S2.MEDIUM4", 2, 4, "S2", "Standard S2", []string{"x86_64"}, 0},
-	{"S2.LARGE8", 4, 8, "S2", "Standard S2", []string{"x86_64"}, 0},
-	{"S2.XLARGE16", 8, 16, "S2", "Standard S2", []string{"x86_64"}, 0},
-	{"S2.2XLARGE32", 16, 32, "S2", "Standard S2", []string{"x86_64"}, 0},
-	{"S3.SMALL1", 1, 1, "S3", "Standard S3", []string{"x86_64"}, 0},
-	{"S3.SMALL2", 1, 2, "S3", "Standard S3", []string{"x86_64"}, 0},
-	{"S3.MEDIUM4", 2, 4, "S3", "Standard S3", []string{"x86_64"}, 0},
-	{"S3.LARGE8", 4, 8, "S3", "Standard S3", []string{"x86_64"}, 0},
-	{"S3.XLARGE16", 8, 16, "S3", "Standard S3", []string{"x86_64"}, 0},
-	{"S3.2XLARGE32", 16, 32, "S3", "Standard S3", []string{"x86_64"}, 0},
-	{"S3.4XLARGE64", 32, 64, "S3", "Standard S3", []string{"x86_64"}, 0},
-	{"S4.SMALL2", 1, 2, "S4", "Standard S4", []string{"x86_64"}, 0},
-	{"S4.MEDIUM4", 2, 4, "S4", "Standard S4", []string{"x86_64"}, 0},
-	{"S4.LARGE8", 4, 8, "S4", "Standard S4", []string{"x86_64"}, 0},
-	{"S4.XLARGE16", 8, 16, "S4", "Standard S4", []string{"x86_64"}, 0},
-	{"S4.2XLARGE32", 16, 32, "S4", "Standard S4", []string{"x86_64"}, 0},
-	{"S4.4XLARGE64", 32, 64, "S4", "Standard S4", []string{"x86_64"}, 0},
-	{"S5.SMALL2", 1, 2, "S5", "Standard S5", []string{"x86_64"}, 0},
-	{"S5.MEDIUM4", 2, 4, "S5", "Standard S5", []string{"x86_64"}, 0},
-	{"S5.LARGE8", 4, 8, "S5", "Standard S5", []string{"x86_64"}, 0},
-	{"S5.XLARGE16", 8, 16, "S5", "Standard S5", []string{"x86_64"}, 0},
-	{"S5.2XLARGE32", 16, 32, "S5", "Standard S5", []string{"x86_64"}, 0},
-	{"S5.4XLARGE64", 32, 64, "S5", "Standard S5", []string{"x86_64"}, 0},
-	{"S5.8XLARGE128", 64, 128, "S5", "Standard S5", []string{"x86_64"}, 0},
+	{"S1.SMALL1", 1, 1, "S1", "Standard S1", []string{"x86_64"}, 0, ""},
+	{"S1.SMALL2", 1, 2, "S1", "Standard S1", []string{"x86_64"}, 0, ""},
+	{"S1.MEDIUM4", 2, 4, "S1", "Standard S1", []string{"x86_64"}, 0, ""},
+	{"S1.LARGE8", 4, 8, "S1", "Standard S1", []string{"x86_64"}, 0, ""},
+	{"S1.XLARGE16", 8, 16, "S1", "Standard S1", []string{"x86_64"}, 0, ""},
+	{"S2.SMALL1", 1, 1, "S2", "Standard S2", []string{"x86_64"}, 0, ""},
+	{"S2.SMALL2", 1, 2, "S2", "Standard S2", []string{"x86_64"}, 0, ""},
+	{"S2.MEDIUM4", 2, 4, "S2", "Standard S2", []string{"x86_64"}, 0, ""},
+	{"S2.LARGE8", 4, 8, "S2", "Standard S2", []string{"x86_64"}, 0, ""},
+	{"S2.XLARGE16", 8, 16, "S2", "Standard S2", []string{"x86_64"}, 0, ""},
+	{"S2.2XLARGE32", 16, 32, "S2", "Standard S2", []string{"x86_64"}, 0, ""},
+	{"S3.SMALL1", 1, 1, "S3", "Standard S3", []string{"x86_64"}, 0, ""},
+	{"S3.SMALL2", 1, 2, "S3", "Standard S3", []string{"x86_64"}, 0, ""},
+	{"S3.MEDIUM4", 2, 4, "S3", "Standard S3", []string{"x86_64"}, 0, ""},
+	{"S3.LARGE8", 4, 8, "S3", "Standard S3", []string{"x86_64"}, 0, ""},
+	{"S3.XLARGE16", 8, 16, "S3", "Standard S3", []string{"x86_64"}, 0, ""},
+	{"S3.2XLARGE32", 16, 32, "S3", "Standard S3", []string{"x86_64"}, 0, ""},
+	{"S3.4XLARGE64", 32, 64, "S3", "Standard S3", []string{"x86_64"}, 0, ""},
+	{"S4.SMALL2", 1, 2, "S4", "Standard S4", []string{"x86_64"}, 0, ""},
+	{"S4.MEDIUM4", 2, 4, "S4", "Standard S4", []string{"x86_64"}, 0, ""},
+	{"S4.LARGE8", 4, 8, "S4", "Standard S4", []string{"x86_64"}, 0, ""},
+	{"S4.XLARGE16", 8, 16, "S4", "Standard S4", []string{"x86_64"}, 0, ""},
+	{"S4.2XLARGE32", 16, 32, "S4", "Standard S4", []string{"x86_64"}, 0, ""},
+	{"S4.4XLARGE64", 32, 64, "S4", "Standard S4", []string{"x86_64"}, 0, ""},
+	{"S5.SMALL2", 1, 2, "S5", "Standard S5", []string{"x86_64"}, 0, ""},
+	{"S5.MEDIUM4", 2, 4, "S5", "Standard S5", []string{"x86_64"}, 0, ""},
+	{"S5.LARGE8", 4, 8, "S5", "Standard S5", []string{"x86_64"}, 0, ""},
+	{"S5.XLARGE16", 8, 16, "S5", "Standard S5", []string{"x86_64"}, 0, ""},
+	{"S5.2XLARGE32", 16, 32, "S5", "Standard S5", []string{"x86_64"}, 0, ""},
+	{"S5.4XLARGE64", 32, 64, "S5", "Standard S5", []string{"x86_64"}, 0, ""},
+	{"S5.8XLARGE128", 64, 128, "S5", "Standard S5", []string{"x86_64"}, 0, ""},
 	// Compute C series
-	{"C3.LARGE8", 4, 8, "C3", "Compute C3", []string{"x86_64"}, 0},
-	{"C3.XLARGE16", 8, 16, "C3", "Compute C3", []string{"x86_64"}, 0},
-	{"C3.2XLARGE16", 16, 16, "C3", "Compute C3", []string{"x86_64"}, 0},
-	{"C3.2XLARGE32", 16, 32, "C3", "Compute C3", []string{"x86_64"}, 0},
-	{"C3.4XLARGE32", 32, 32, "C3", "Compute C3", []string{"x86_64"}, 0},
-	{"C3.4XLARGE64", 32, 64, "C3", "Compute C3", []string{"x86_64"}, 0},
-	{"C3.8XLARGE64", 64, 64, "C3", "Compute C3", []string{"x86_64"}, 0},
-	{"C3.8XLARGE128", 64, 128, "C3", "Compute C3", []string{"x86_64"}, 0},
+	{"C3.LARGE8", 4, 8, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
+	{"C3.XLARGE16", 8, 16, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
+	{"C3.2XLARGE16", 16, 16, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
+	{"C3.2XLARGE32", 16, 32, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
+	{"C3.4XLARGE32", 32, 32, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
+	{"C3.4XLARGE64", 32, 64, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
+	{"C3.8XLARGE64", 64, 64, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
+	{"C3.8XLARGE128", 64, 128, "C3", "Compute C3", []string{"x86_64"}, 0, ""},
 	// Memory M series
-	{"M5.SMALL8", 1, 8, "M5", "Memory M5", []string{"x86_64"}, 0},
-	{"M5.MEDIUM16", 2, 16, "M5", "Memory M5", []string{"x86_64"}, 0},
-	{"M5.LARGE32", 4, 32, "M5", "Memory M5", []string{"x86_64"}, 0},
-	{"M5.XLARGE64", 8, 64, "M5", "Memory M5", []string{"x86_64"}, 0},
-	{"M5.2XLARGE128", 16, 128, "M5", "Memory M5", []string{"x86_64"}, 0},
-	{"M5.4XLARGE256", 32, 256, "M5", "Memory M5", []string{"x86_64"}, 0},
+	{"M5.SMALL8", 1, 8, "M5", "Memory M5", []string{"x86_64"}, 0, ""},
+	{"M5.MEDIUM16", 2, 16, "M5", "Memory M5", []string{"x86_64"}, 0, ""},
+	{"M5.LARGE32", 4, 32, "M5", "Memory M5", []string{"x86_64"}, 0, ""},
+	{"M5.XLARGE64", 8, 64, "M5", "Memory M5", []string{"x86_64"}, 0, ""},
+	{"M5.2XLARGE128", 16, 128, "M5", "Memory M5", []string{"x86_64"}, 0, ""},
+	{"M5.4XLARGE256", 32, 256, "M5", "Memory M5", []string{"x86_64"}, 0, ""},
 	// GPU GN series
-	{"GN7.LARGE20", 4, 20, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 1},
-	{"GN7.2XLARGE56", 10, 56, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 1},
-	{"GN7.5XLARGE80", 24, 80, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 4},
-	{"GN7.8XLARGE128", 40, 128, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 4},
-	{"GN7.10XLARGE160", 40, 160, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 8},
-	{"GN10X.2XLARGE40", 10, 40, "GN10X", "GPU GN10X (NVIDIA V100)", []string{"x86_64"}, 1},
-	{"GN10X.9XLARGE160", 40, 160, "GN10X", "GPU GN10X (NVIDIA V100)", []string{"x86_64"}, 4},
-	{"GN10X.18XLARGE320", 80, 320, "GN10X", "GPU GN10X (NVIDIA V100)", []string{"x86_64"}, 8},
+	{"GN7.LARGE20", 4, 20, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 1, "NVIDIA Tesla T4"},
+	{"GN7.2XLARGE56", 10, 56, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 1, "NVIDIA Tesla T4"},
+	{"GN7.5XLARGE80", 24, 80, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 4, "NVIDIA Tesla T4"},
+	{"GN7.8XLARGE128", 40, 128, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 4, "NVIDIA Tesla T4"},
+	{"GN7.10XLARGE160", 40, 160, "GN7", "GPU GN7 (NVIDIA T4)", []string{"x86_64"}, 8, "NVIDIA Tesla T4"},
+	{"GN10X.2XLARGE40", 10, 40, "GN10X", "GPU GN10X (NVIDIA V100)", []string{"x86_64"}, 1, "NVIDIA Tesla V100"},
+	{"GN10X.9XLARGE160", 40, 160, "GN10X", "GPU GN10X (NVIDIA V100)", []string{"x86_64"}, 4, "NVIDIA Tesla V100"},
+	{"GN10X.18XLARGE320", 80, 320, "GN10X", "GPU GN10X (NVIDIA V100)", []string{"x86_64"}, 8, "NVIDIA Tesla V100"},
 	// Arm SA series
-	{"SA2.SMALL4", 2, 4, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0},
-	{"SA2.MEDIUM8", 4, 8, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0},
-	{"SA2.LARGE16", 8, 16, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0},
-	{"SA2.XLARGE32", 16, 32, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0},
-	{"SA2.2XLARGE64", 32, 64, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0},
-	{"SA3.SMALL4", 2, 4, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0},
-	{"SA3.MEDIUM8", 4, 8, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0},
-	{"SA3.LARGE16", 8, 16, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0},
-	{"SA3.XLARGE32", 16, 32, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0},
+	{"SA2.SMALL4", 2, 4, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0, ""},
+	{"SA2.MEDIUM8", 4, 8, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0, ""},
+	{"SA2.LARGE16", 8, 16, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0, ""},
+	{"SA2.XLARGE32", 16, 32, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0, ""},
+	{"SA2.2XLARGE64", 32, 64, "SA2", "Standard SA2 (Arm)", []string{"arm64"}, 0, ""},
+	{"SA3.SMALL4", 2, 4, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0, ""},
+	{"SA3.MEDIUM8", 4, 8, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0, ""},
+	{"SA3.LARGE16", 8, 16, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0, ""},
+	{"SA3.XLARGE32", 16, 32, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0, ""},
 }
 
 // ----- CVM API structs -----
 
 type cvmInstanceTypeConfig struct {
-	Zone         string  `json:"Zone"`
-	InstanceType string  `json:"InstanceType"`
+	Zone           string `json:"Zone"`
+	InstanceType   string `json:"InstanceType"`
 	InstanceFamily string `json:"InstanceFamily"`
-	CPU          int     `json:"CPU"`
-	Memory       int     `json:"Memory"` // MiB
-	FPGA         int     `json:"FPGA"`
-	GPU          int     `json:"GPU"`
-	GPUDesc      string  `json:"GPUDesc"`
+	CPU            int    `json:"CPU"`
+	Memory         int    `json:"Memory"` // GiB
+	FPGA           int    `json:"FPGA"`
+	GPU            int    `json:"GPU"`
+	GPUDesc        string `json:"GPUDesc"`
 }
 
 type cvmResponse struct {
@@ -187,7 +188,7 @@ func fetchSpecsFromAPI(secretID, secretKey string) map[string]*CVMInstance {
 					InstanceFamily: t.InstanceFamily,
 					PrettyName:     prettyName(t.InstanceFamily),
 					VCPU:           t.CPU,
-					Memory:         float64(t.Memory) / 1024.0,
+					Memory:         float64(t.Memory),
 					Arch:           archForFamily(t.InstanceFamily),
 					GPU:            t.GPU,
 					GPUModel:       t.GPUDesc,
@@ -195,7 +196,7 @@ func fetchSpecsFromAPI(secretID, secretKey string) map[string]*CVMInstance {
 				}
 				all[key] = inst
 			}
-			inst.Regions = appendUnique(inst.Regions, region)
+			inst.Regions = utils.AppendUnique(inst.Regions, region)
 		}
 		log.Printf("[tencentcloud] region %s: %d instance types", region, len(types))
 	}
@@ -208,11 +209,11 @@ func describeInstanceTypeConfigs(secretID, secretKey, region string) ([]cvmInsta
 	date := time.Unix(timestamp, 0).UTC().Format("2006-01-02")
 
 	headers := map[string]string{
-		"Content-Type":  "application/json; charset=utf-8",
-		"Host":          "cvm.tencentcloudapi.com",
-		"X-TC-Action":   "DescribeInstanceTypeConfigs",
-		"X-TC-Version":  "2017-03-12",
-		"X-TC-Region":   region,
+		"Content-Type":   "application/json; charset=utf-8",
+		"Host":           "cvm.tencentcloudapi.com",
+		"X-TC-Action":    "DescribeInstanceTypeConfigs",
+		"X-TC-Version":   "2017-03-12",
+		"X-TC-Region":    region,
 		"X-TC-Timestamp": fmt.Sprintf("%d", timestamp),
 	}
 
@@ -332,15 +333,6 @@ func archForFamily(family string) []string {
 	return []string{"x86_64"}
 }
 
-func appendUnique(s []string, v string) []string {
-	for _, x := range s {
-		if x == v {
-			return s
-		}
-	}
-	return append(s, v)
-}
-
 // ----- main entry point -----
 
 // DoTencentcloudScraping is called from main.go.
@@ -359,6 +351,7 @@ func DoTencentcloudScraping() {
 			Memory:         s.MemGiB,
 			Arch:           s.Arch,
 			GPU:            s.GPU,
+			GPUModel:       s.GPUModel,
 			Pricing:        map[string]map[string]map[string]string{},
 		}
 	}
