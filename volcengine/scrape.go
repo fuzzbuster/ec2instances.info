@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	outputFilePath = "www/volcengine/instances.json"
+	outputFilePath = "volcengine/instances.json"
 	ecsAPIHost     = "open.volcengineapi.com"
 	ecsAPIRegion   = "cn-beijing" // service endpoint region
 	ecsService     = "ecs"
@@ -340,7 +340,7 @@ func prettyName(family string) string {
 // ----- main entry point -----
 
 // DoVolcengineScraping is called from main.go.
-func DoVolcengineScraping() {
+func DoVolcengineScraping() error {
 	log.Println("[volcengine] starting scrape")
 
 	all := map[string]*VEInstance{}
@@ -387,6 +387,9 @@ func DoVolcengineScraping() {
 		return sorted[i].InstanceType < sorted[j].InstanceType
 	})
 
-	utils.SaveInstances(sorted, outputFilePath)
+	if err := utils.SaveInstances(sorted, outputFilePath); err != nil {
+		return fmt.Errorf("save Volcengine instances: %w", err)
+	}
 	log.Printf("[volcengine] wrote %d instances to %s", len(sorted), outputFilePath)
+	return nil
 }

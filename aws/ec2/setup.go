@@ -23,11 +23,11 @@ func Setup(
 		spotDataPartialGetter: spotDataPartialGetter,
 		t2HtmlGetter:          t2HtmlGetter,
 	}
-	fg.Add(func() {
-		processEC2Data(ec2ChinaChannel, ec2ApiResponses, true, getters)
+	fg.Add(func() error {
+		return processEC2Data(ec2ChinaChannel, ec2ApiResponses, true, getters)
 	})
-	fg.Add(func() {
-		processEC2Data(ec2GlobalChannel, ec2ApiResponses, false, getters)
+	fg.Add(func() error {
+		return processEC2Data(ec2GlobalChannel, ec2ApiResponses, false, getters)
 	})
 
 	return ec2GlobalChannel, ec2ChinaChannel

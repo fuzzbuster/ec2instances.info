@@ -42,7 +42,7 @@ var providers = []provider{
 	{
 		Name:        "aws",
 		RequiredEnv: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"},
-		Run:         legacyProvider(aws.DoAwsScraping),
+		Run:         aws.DoAwsScraping,
 	},
 	{
 		Name: "azure",
@@ -52,27 +52,27 @@ var providers = []provider{
 			"AZURE_CLIENT_SECRET",
 			"AZURE_SUBSCRIPTION_ID",
 		},
-		Run: legacyProvider(azure.DoAzureScraping),
+		Run: azure.DoAzureScraping,
 	},
 	{
 		Name:        "gcp",
 		RequiredEnv: []string{"GCP_PROJECT_ID", "GCP_CLIENT_EMAIL", "GCP_PRIVATE_KEY"},
-		Run:         legacyProvider(gcp.DoGCPScraping),
+		Run:         gcp.DoGCPScraping,
 	},
 	{
 		Name:        "alicloud",
 		OptionalEnv: []string{"ALICLOUD_ACCESS_KEY", "ALICLOUD_SECRET_KEY"},
-		Run:         legacyProvider(alicloud.DoAlicloudScraping),
+		Run:         alicloud.DoAlicloudScraping,
 	},
 	{
 		Name:        "tencentcloud",
 		OptionalEnv: []string{"TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY"},
-		Run:         legacyProvider(tencentcloud.DoTencentcloudScraping),
+		Run:         tencentcloud.DoTencentcloudScraping,
 	},
 	{
 		Name:        "volcengine",
 		OptionalEnv: []string{"VOLCENGINE_ACCESS_KEY", "VOLCENGINE_SECRET_KEY"},
-		Run:         legacyProvider(volcengine.DoVolcengineScraping),
+		Run:         volcengine.DoVolcengineScraping,
 	},
 	{
 		Name: "huaweicloud",
@@ -82,19 +82,12 @@ var providers = []provider{
 			"HUAWEICLOUD_PROJECT_ID",
 			"HUAWEICLOUD_REGION",
 		},
-		Run: legacyProvider(huaweicloud.DoHuaweicloudScraping),
+		Run: huaweicloud.DoHuaweicloudScraping,
 	},
-	{Name: "vultr", Run: legacyProvider(vultr.DoVultrScraping)},
-	{Name: "linode", Run: legacyProvider(linode.DoLinodeScraping)},
-	{Name: "digitalocean", Run: legacyProvider(digitalocean.DoDigitalOceanScraping)},
-	{Name: "hetzner", Run: legacyProvider(hetzner.DoHetznerScraping)},
-}
-
-func legacyProvider(run func()) func() error {
-	return func() error {
-		run()
-		return nil
-	}
+	{Name: "vultr", Run: vultr.DoVultrScraping},
+	{Name: "linode", Run: linode.DoLinodeScraping},
+	{Name: "digitalocean", Run: digitalocean.DoDigitalOceanScraping},
+	{Name: "hetzner", Run: hetzner.DoHetznerScraping},
 }
 
 func selectProviders(value string) ([]provider, error) {

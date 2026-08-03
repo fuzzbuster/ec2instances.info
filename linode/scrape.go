@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	outputFilePath = "www/linode/instances.json"
+	outputFilePath = "linode/instances.json"
 	typesURL       = "https://api.linode.com/v4/linode/types?page_size=500"
 	regionsURL     = "https://api.linode.com/v4/regions?page_size=500"
 )
@@ -83,9 +83,15 @@ type VPSInstance struct {
 	Regions            map[string]string                        `json:"regions"`
 }
 
-func DoLinodeScraping() {
-	regions := fetchRegions()
-	types := fetchTypes()
+func DoLinodeScraping() error {
+	regions, err := fetchRegions()
+	if err != nil {
+		return err
+	}
+	types, err := fetchTypes()
+	if err != nil {
+		return err
+	}
 	instances := make([]VPSInstance, 0, len(types))
 
 	for _, instanceType := range types {
@@ -142,16 +148,22 @@ func DoLinodeScraping() {
 		return instances[i].InstanceType < instances[j].InstanceType
 	})
 
-	utils.SaveInstances(instances, outputFilePath)
+	if err := utils.SaveInstances(instances, outputFilePath); err != nil {
+		return fmt.Errorf("save Linode instances: %w", err)
+	}
 	log.Printf("[linode] wrote %d instance types", len(instances))
+	return nil
 }
 
-func fetchTypes() []Type {
+func fetchTypes() ([]Type, error) {
 	return fetchPages[Type](typesURL, "[linode] fetch types")
 }
 
-func fetchRegions() map[string]Region {
-	all := fetchPages[Region](regionsURL, "[linode] fetch regions")
+func fetchRegions() (map[string]Region, error) {
+	all, err := fetchPages[Region](regionsURL, "[linode] fetch regions")
+	if err != nil {
+		return nil, err
+	}
 	regions := map[string]Region{}
 	for _, region := range all {
 		if region.Status != "ok" || !contains(region.Capabilities, "Linodes") {
@@ -159,21 +171,21 @@ func fetchRegions() map[string]Region {
 		}
 		regions[region.ID] = region
 	}
-	return regions
+	return regions, nil
 }
 
-func fetchPages[T any](baseURL string, logPrefix string) []T {
+func fetchPages[T any](baseURL string, logPrefix string) ([]T, error) {
 	var all []T
 	pageURL := baseURL
 	for {
 		body, err := utils.FetchWithRetry(pageURL, nil)
 		if err != nil {
-			log.Fatalf("%s: %v", logPrefix, err)
+			return nil, fmt.Errorf("%s: %w", logPrefix, err)
 		}
 
 		var response PageResponse[T]
 		if err := json.Unmarshal(body, &response); err != nil {
-			log.Fatalf("%s parse: %v", logPrefix, err)
+			return nil, fmt.Errorf("%s parse: %w", logPrefix, err)
 		}
 		all = append(all, response.Data...)
 
@@ -182,7 +194,7 @@ func fetchPages[T any](baseURL string, logPrefix string) []T {
 		}
 		pageURL = fmt.Sprintf("%s&page=%d", baseURL, response.Page+1)
 	}
-	return all
+	return all, nil
 }
 
 func contains(values []string, target string) bool {

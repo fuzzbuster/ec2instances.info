@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
 	"log"
 	"strconv"
@@ -40,9 +41,9 @@ var EBS_REGION_MAP = map[string]string{
 	"apac-tokyo":   "ap-northeast-1",
 }
 
-func transformEbsRegionName(region string) string {
+func transformEbsRegionName(region string) (string, error) {
 	if region, ok := EBS_REGION_MAP[region]; ok {
-		return region
+		return region, nil
 	}
 
 	// Parse region name to extract base and number
@@ -55,25 +56,24 @@ func transformEbsRegionName(region string) string {
 				numStr := region[i+1:]
 				if _, err := strconv.Atoi(numStr); err == nil {
 					// Valid format: base-number
-					return region
+					return region, nil
 				}
 			}
 			// Invalid format, treat as base-1
-			return region + "-1"
+			return region + "-1", nil
 		}
 		if region[i] >= '0' && region[i] <= '9' {
 			continue
 		}
 		// Found non-digit character, everything before this is the base
 		// If no dash found, append -1
-		return region + "-1"
+		return region + "-1", nil
 	}
 
-	log.Fatalln("Can't parse region", region)
-	return ""
+	return "", fmt.Errorf("cannot parse EBS region %q", region)
 }
 
-func addEBSPricing(instances map[string]*EC2Instance, currency string) {
+func addEBSPricing(instances map[string]*EC2Instance, currency string) error {
 	log.Default().Println("Adding EBS pricing to EC2")
 
 	var ebsData EBSData
@@ -82,16 +82,19 @@ func addEBSPricing(instances map[string]*EC2Instance, currency string) {
 		&ebsData,
 	)
 	if err != nil {
-		log.Fatalln("Failed to fetch EBS pricing data", err)
+		return fmt.Errorf("fetch EBS pricing data: %w", err)
 	}
 
 	for _, regionSpec := range ebsData.Config.Regions {
-		region := transformEbsRegionName(regionSpec.Region)
+		region, err := transformEbsRegionName(regionSpec.Region)
+		if err != nil {
+			return err
+		}
 		for _, instanceTypeSpec := range regionSpec.InstanceTypes {
 			for _, sizeSpec := range instanceTypeSpec.Sizes {
 				instance := instances[sizeSpec.Size]
 				if instance == nil {
-					log.Fatalln("EBS pricing data has unknown instance type", sizeSpec.Size)
+					return fmt.Errorf("EBS pricing has unknown instance type %s", sizeSpec.Size)
 				}
 				pricingData := instance.Pricing[region]
 				if pricingData == nil {
@@ -100,15 +103,16 @@ func addEBSPricing(instances map[string]*EC2Instance, currency string) {
 				for _, col := range sizeSpec.ValueColumns {
 					price, ok := col.Prices[currency]
 					if !ok {
-						log.Fatalln("EBS pricing data has no price for", sizeSpec.Size, col.Prices)
+						return fmt.Errorf("EBS pricing has no %s price for %s", currency, sizeSpec.Size)
 					}
 					priceFloat, err := strconv.ParseFloat(price, 64)
 					if err != nil {
-						log.Fatalln("EBS pricing data has invalid price for", sizeSpec.Size, col.Prices)
+						return fmt.Errorf("parse EBS price for %s: %w", sizeSpec.Size, err)
 					}
 					pricingData["ebs"] = formatPrice(priceFloat)
 				}
 			}
 		}
 	}
+	return nil
 }

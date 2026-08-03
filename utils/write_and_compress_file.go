@@ -2,63 +2,79 @@ package utils
 
 import (
 	"compress/gzip"
-	"log"
+	"fmt"
 	"os"
 
 	"github.com/andybalholm/brotli"
 )
 
-// WriteAndCompressFile writes a file and then compresses it to a .gz and .br file.
-func WriteAndCompressFile(path string, data []byte) {
-	var fg FunctionGroup
+// WriteAndCompressFile writes a file and matching gzip and Brotli files.
+func WriteAndCompressFile(relativePath string, data []byte) error {
+	path, err := OutputPath(relativePath)
+	if err != nil {
+		return err
+	}
+	if err := ensureParent(path); err != nil {
+		return err
+	}
+	return writeAndCompressFile(path, data)
+}
 
-	// Standard write
-	fg.Add(func() {
-		err := os.WriteFile(path, data, 0644)
-		if err != nil {
-			log.Fatal("Failed to write file "+path, err)
+func writeAndCompressFile(path string, data []byte) error {
+	var group FunctionGroup
+	group.Add(func() error {
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return fmt.Errorf("write %q: %w", path, err)
 		}
+		return nil
 	})
-
-	// Gzip
-	fg.Add(func() {
-		var err error
-		gzPath := path + ".gz"
-		gzFile, err := os.Create(gzPath)
-		if err != nil {
-			log.Fatal("Failed to create gzip file "+gzPath, err)
-		}
-		defer gzFile.Close()
-		gzWriter := gzip.NewWriter(gzFile)
-		_, err = gzWriter.Write(data)
-		if err != nil {
-			log.Fatal("Failed to write to gzip file "+gzPath, err)
-		}
-		err = gzWriter.Close()
-		if err != nil {
-			log.Fatal("Failed to close gzip file "+gzPath, err)
-		}
+	group.Add(func() error {
+		return writeGzip(path+".gz", data)
 	})
-
-	// Brotli
-	fg.Add(func() {
-		var err error
-		brPath := path + ".br"
-		brFile, err := os.Create(brPath)
-		if err != nil {
-			log.Fatal("Failed to create brotli file "+brPath, err)
-		}
-		defer brFile.Close()
-		brWriter := brotli.NewWriter(brFile)
-		_, err = brWriter.Write(data)
-		if err != nil {
-			log.Fatal("Failed to write to brotli file "+brPath, err)
-		}
-		err = brWriter.Close()
-		if err != nil {
-			log.Fatal("Failed to close brotli file "+brPath, err)
-		}
+	group.Add(func() error {
+		return writeBrotli(path+".br", data)
 	})
+	return group.Run()
+}
 
-	fg.Run()
+func writeGzip(path string, data []byte) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create %q: %w", path, err)
+	}
+	writer := gzip.NewWriter(file)
+	if _, err := writer.Write(data); err != nil {
+		_ = writer.Close()
+		_ = file.Close()
+		return fmt.Errorf("write %q: %w", path, err)
+	}
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("close gzip %q: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close %q: %w", path, err)
+	}
+	return nil
+}
+
+func writeBrotli(path string, data []byte) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create %q: %w", path, err)
+	}
+	writer := brotli.NewWriter(file)
+	if _, err := writer.Write(data); err != nil {
+		_ = writer.Close()
+		_ = file.Close()
+		return fmt.Errorf("write %q: %w", path, err)
+	}
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("close Brotli %q: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close %q: %w", path, err)
+	}
+	return nil
 }

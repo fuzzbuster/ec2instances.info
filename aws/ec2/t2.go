@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"log"
 	"strconv"
@@ -13,48 +14,52 @@ func float64Ptr(f float64) *float64 {
 	return &f
 }
 
-func processT2Row(instance *EC2Instance, childText string) {
+func processT2Row(instance *EC2Instance, childText string) error {
 	credsPerHourFloat, err := strconv.ParseFloat(childText, 64)
 	if err != nil {
-		log.Fatalln("Failed to parse T2 credits per hour", childText)
+		return fmt.Errorf("parse T2 credits per hour %q: %w", childText, err)
 	}
 	instance.BasePerformance = float64Ptr(credsPerHourFloat / 60)
 	instance.BurstMinutes = float64Ptr(credsPerHourFloat * 24 / float64(instance.VCPU.Value()))
+	return nil
 }
 
-func getT2Html() *soup.Root {
+func getT2Html() (*soup.Root, error) {
 	t2Url := "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-credits-baseline-concepts.html"
 	doc, err := utils.LoadHTML(t2Url)
 	if err != nil {
-		log.Fatalln("Failed to load T2 credits HTML", err)
+		return nil, fmt.Errorf("load T2 credits HTML: %w", err)
 	}
-	return doc
+	return doc, nil
 }
 
-func addT2Credits(instances map[string]*EC2Instance, t2HtmlGetter func() *soup.Root) {
+func addT2Credits(instances map[string]*EC2Instance, t2HtmlGetter func() (*soup.Root, error)) error {
 	log.Default().Println("Adding T2 credits to EC2")
 
-	doc := t2HtmlGetter()
+	doc, err := t2HtmlGetter()
+	if err != nil {
+		return err
+	}
 	tableContainers := doc.FindAll("div", "class", "table-contents")
 	if len(tableContainers) < 2 {
-		log.Fatalln("Failed to find T2 credits table containers")
+		return fmt.Errorf("find T2 credits table containers")
 	}
 	if tableContainers[1].Error != nil {
-		log.Fatalln("Failed to load T2 credits table container")
+		return fmt.Errorf("load T2 credits table container: %w", tableContainers[1].Error)
 	}
 	tables := tableContainers[1].Find("table")
 	if tables.Error != nil {
-		log.Fatalln("Failed to find T2 credits table")
+		return fmt.Errorf("find T2 credits table: %w", tables.Error)
 	}
 
 	tbody := tables.Find("tbody")
 	if tbody.Error != nil {
-		log.Fatalln("Failed to find T2 credits tbody")
+		return fmt.Errorf("find T2 credits tbody: %w", tbody.Error)
 	}
 
 	rows := tbody.FindAll("tr")
 	if len(rows) == 0 {
-		log.Fatalln("Failed to find T2 credits rows")
+		return fmt.Errorf("find T2 credits rows")
 	}
 
 	for _, row := range rows {
@@ -78,9 +83,12 @@ func addT2Credits(instances map[string]*EC2Instance, t2HtmlGetter func() *soup.R
 				if childText == "" {
 					utils.SendWarning("T2 credits data has empty row", firstNodeText)
 				} else {
-					processT2Row(instance, childText)
+					if err := processT2Row(instance, childText); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+	return nil
 }

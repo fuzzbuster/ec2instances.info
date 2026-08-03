@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	outputFilePath = "www/huaweicloud/instances.json"
+	outputFilePath = "huaweicloud/instances.json"
 )
 
 // Huawei Cloud regions.
@@ -372,7 +372,7 @@ func prettyName(family string) string {
 // ----- main entry point -----
 
 // DoHuaweicloudScraping is called from main.go.
-func DoHuaweicloudScraping() {
+func DoHuaweicloudScraping() error {
 	log.Println("[huaweicloud] starting scrape")
 
 	all := map[string]*HWInstance{}
@@ -416,6 +416,9 @@ func DoHuaweicloudScraping() {
 		return sorted[i].InstanceType < sorted[j].InstanceType
 	})
 
-	utils.SaveInstances(sorted, outputFilePath)
+	if err := utils.SaveInstances(sorted, outputFilePath); err != nil {
+		return fmt.Errorf("save Huawei Cloud instances: %w", err)
+	}
 	log.Printf("[huaweicloud] wrote %d instances to %s", len(sorted), outputFilePath)
+	return nil
 }

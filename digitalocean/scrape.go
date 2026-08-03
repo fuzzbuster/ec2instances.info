@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	outputFilePath  = "www/digitalocean/instances.json"
+	outputFilePath  = "digitalocean/instances.json"
 	pricingURL      = "https://www.digitalocean.com/pricing/droplets"
 	availabilityURL = "https://docs.digitalocean.com/platform/regional-availability/index.html.md"
 )
@@ -58,10 +58,19 @@ type VPSInstance struct {
 	Regions            map[string]string                        `json:"regions"`
 }
 
-func DoDigitalOceanScraping() {
-	regions := fetchRegions()
-	availability := fetchDropletAvailability(regions)
-	plans := fetchPlans()
+func DoDigitalOceanScraping() error {
+	regions, err := fetchRegions()
+	if err != nil {
+		return err
+	}
+	availability, err := fetchDropletAvailability(regions)
+	if err != nil {
+		return err
+	}
+	plans, err := fetchPlans()
+	if err != nil {
+		return err
+	}
 	instances := make([]VPSInstance, 0, len(plans))
 
 	for _, plan := range plans {
@@ -96,14 +105,17 @@ func DoDigitalOceanScraping() {
 		return instances[i].InstanceType < instances[j].InstanceType
 	})
 
-	utils.SaveInstances(instances, outputFilePath)
+	if err := utils.SaveInstances(instances, outputFilePath); err != nil {
+		return fmt.Errorf("save DigitalOcean instances: %w", err)
+	}
 	log.Printf("[digitalocean] wrote %d droplet plans", len(instances))
+	return nil
 }
 
-func fetchPlans() []Plan {
+func fetchPlans() ([]Plan, error) {
 	body, err := utils.FetchWithRetry(pricingURL, nil)
 	if err != nil {
-		log.Fatalf("[digitalocean] fetch pricing page: %v", err)
+		return nil, fmt.Errorf("fetch DigitalOcean pricing page: %w", err)
 	}
 
 	unescaped := strings.ReplaceAll(string(body), `\"`, `"`)
@@ -114,7 +126,7 @@ func fetchPlans() []Plan {
 	for _, raw := range matches {
 		var plan Plan
 		if err := json.Unmarshal([]byte(raw), &plan); err != nil {
-			log.Fatalf("[digitalocean] parse plan: %v", err)
+			return nil, fmt.Errorf("parse DigitalOcean plan: %w", err)
 		}
 		if _, ok := seen[plan.Slug]; ok {
 			continue
@@ -123,15 +135,15 @@ func fetchPlans() []Plan {
 		plans = append(plans, plan)
 	}
 	if len(plans) == 0 {
-		log.Fatal("[digitalocean] no droplet plans found")
+		return nil, fmt.Errorf("no DigitalOcean droplet plans found")
 	}
-	return plans
+	return plans, nil
 }
 
-func fetchRegions() map[string]string {
+func fetchRegions() (map[string]string, error) {
 	body, err := utils.FetchWithRetry(availabilityURL, nil)
 	if err != nil {
-		log.Fatalf("[digitalocean] fetch regional availability: %v", err)
+		return nil, fmt.Errorf("fetch DigitalOcean regional availability: %w", err)
 	}
 
 	regions := map[string]string{}
@@ -140,15 +152,15 @@ func fetchRegions() map[string]string {
 		regions[match[3]] = strings.TrimSpace(match[2])
 	}
 	if len(regions) == 0 {
-		log.Fatal("[digitalocean] no regions found")
+		return nil, fmt.Errorf("no DigitalOcean regions found")
 	}
-	return regions
+	return regions, nil
 }
 
-func fetchDropletAvailability(regions map[string]string) map[string][]string {
+func fetchDropletAvailability(regions map[string]string) (map[string][]string, error) {
 	body, err := utils.FetchWithRetry(availabilityURL, nil)
 	if err != nil {
-		log.Fatalf("[digitalocean] fetch droplet availability: %v", err)
+		return nil, fmt.Errorf("fetch DigitalOcean droplet availability: %w", err)
 	}
 
 	lines := strings.Split(string(body), "\n")
@@ -185,9 +197,9 @@ func fetchDropletAvailability(regions map[string]string) map[string][]string {
 		}
 	}
 	if len(availability) == 0 {
-		log.Fatal("[digitalocean] no droplet availability found")
+		return nil, fmt.Errorf("no DigitalOcean droplet availability found")
 	}
-	return availability
+	return availability, nil
 }
 
 func markdownCells(line string) []string {

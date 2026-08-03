@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -18,6 +19,22 @@ func TestOutputPath(t *testing.T) {
 	want := filepath.Join(root, "azure", "instances.json")
 	if got != want {
 		t.Fatalf("OutputPath() = %q, want %q", got, want)
+	}
+}
+
+func TestSaveInstancesWritesCompressedVariants(t *testing.T) {
+	root, err := SetOutputDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveInstances([]string{"vm"}, filepath.Join("provider", "instances.json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", ".gz", ".br"} {
+		path := filepath.Join(root, "provider", "instances.json"+suffix)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("stat %s: %v", path, err)
+		}
 	}
 }
 

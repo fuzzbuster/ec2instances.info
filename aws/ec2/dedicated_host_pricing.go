@@ -42,14 +42,18 @@ type dedicatedHostOnDemandData struct {
 	Regions map[string]map[string]dedicatedHostOnDemandPrice `json:"regions"`
 }
 
-func addDedicatedHostOnDemandPrice(instance *EC2Instance, region string, price string) {
+func addDedicatedHostOnDemandPrice(instance *EC2Instance, region string, price string) error {
 	pricingData := instance.Pricing[region]
 	if pricingData == nil {
 		pricingData = make(map[OS]any)
 		instance.Pricing[region] = pricingData
 	}
 	dedicated, ok := pricingData["dedicated"].(*EC2PricingData)
-	price = formatPrice(awsutils.Floaty(price))
+	value, err := awsutils.Floaty(price)
+	if err != nil {
+		return err
+	}
+	price = formatPrice(value)
 	if ok {
 		dedicated.OnDemand = price
 	} else {
@@ -60,6 +64,7 @@ func addDedicatedHostOnDemandPrice(instance *EC2Instance, region string, price s
 		}
 		pricingData["dedicated"] = dedicated
 	}
+	return nil
 }
 
 type dedicatedHostReservedPrice struct {
@@ -162,7 +167,7 @@ func loadDedicatedHostReservedData(
 	instances map[string]*EC2Instance,
 	instancesMu *sync.Mutex,
 	china bool,
-) {
+) error {
 	regionEncoded := url.PathEscape(region)
 	termEncoded := url.PathEscape(term)
 	paymentOptionEncoded := url.PathEscape(paymentOption)
@@ -184,7 +189,7 @@ func loadDedicatedHostReservedData(
 	var dedicatedHostReservedData dedicatedHostReservedData
 	err := awsutils.FetchDataFromAWSWebsite(url, &dedicatedHostReservedData)
 	if err != nil {
-		return
+		return nil
 	}
 
 	for regionName, instanceData := range dedicatedHostReservedData.Regions {
@@ -212,14 +217,22 @@ func loadDedicatedHostReservedData(
 			if leaseInYearsStr != "" {
 				leaseInYears, err := strconv.Atoi(leaseInYearsStr)
 				if err != nil {
-					log.Fatalln("Failed to parse lease contract length", reservedPrice.LeaseContractLength)
+					return fmt.Errorf("parse lease contract length %q: %w", reservedPrice.LeaseContractLength, err)
 				}
 				hoursInTerm := leaseInYears * 365 * 24
 				if reservedPrice.UpfrontPricePerUnit != "" {
-					upfrontPrice = awsutils.Floaty(reservedPrice.UpfrontPricePerUnit) / float64(hoursInTerm)
+					value, err := awsutils.Floaty(reservedPrice.UpfrontPricePerUnit)
+					if err != nil {
+						return err
+					}
+					upfrontPrice = value / float64(hoursInTerm)
 				}
 			}
-			price := awsutils.Floaty(reservedPrice.Price) + upfrontPrice
+			price, err := awsutils.Floaty(reservedPrice.Price)
+			if err != nil {
+				return err
+			}
+			price += upfrontPrice
 
 			instancesMu.Lock()
 			for instanceType, instance := range instances {
@@ -247,6 +260,7 @@ func loadDedicatedHostReservedData(
 			instancesMu.Unlock()
 		}
 	}
+	return nil
 }
 
 const DEDICATED_HOST_ON_DEMAND_URL_US = "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/ec2/USD/current/dedicatedhost-ondemand.json"
@@ -256,14 +270,14 @@ var (
 	DEDICATED_PAYMENT_OPTIONS = []string{"No Upfront", "Partial Upfront", "All Upfront"}
 )
 
-func addDedicatedHostPricingUs(instances map[string]*EC2Instance, regionsInverted map[string]string) {
+func addDedicatedHostPricingUs(instances map[string]*EC2Instance, regionsInverted map[string]string) error {
 	log.Default().Println("Adding dedicated host pricing to EC2 (other regions)")
 
 	// Get the on demand pricing data
 	var dedicatedHostOnDemandData dedicatedHostOnDemandData
 	err := awsutils.FetchDataFromAWSWebsite(DEDICATED_HOST_ON_DEMAND_URL_US, &dedicatedHostOnDemandData)
 	if err != nil {
-		log.Fatalln("Failed to fetch dedicated host on demand data", err)
+		return fmt.Errorf("fetch dedicated host on-demand data: %w", err)
 	}
 
 	// Process the on demand pricing data
@@ -276,7 +290,9 @@ func addDedicatedHostPricingUs(instances map[string]*EC2Instance, regionsInverte
 		for _, price := range instanceData {
 			for instanceType, instance := range instances {
 				if dedicatedHostInstanceTypeMatches(instanceType, price.InstanceType) {
-					addDedicatedHostOnDemandPrice(instance, region, price.Price)
+					if err := addDedicatedHostOnDemandPrice(instance, region, price.Price); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -288,8 +304,8 @@ func addDedicatedHostPricingUs(instances map[string]*EC2Instance, regionsInverte
 	for region := range dedicatedHostOnDemandData.Regions {
 		for _, term := range DEDICATED_TERMS {
 			for _, paymentOption := range DEDICATED_PAYMENT_OPTIONS {
-				fg.Add(func() {
-					loadDedicatedHostReservedData(
+				fg.Add(func() error {
+					return loadDedicatedHostReservedData(
 						region, regionsInverted, term, paymentOption, instances,
 						instancesMu, false,
 					)
@@ -297,12 +313,12 @@ func addDedicatedHostPricingUs(instances map[string]*EC2Instance, regionsInverte
 			}
 		}
 	}
-	fg.Run()
+	return fg.Run()
 }
 
 const DEDICATED_HOST_ON_DEMAND_URL_CN = "https://calculator.amazonaws.cn/pricing/2.0/meteredUnitMaps/aws-cn/ec2/CNY/current/ec2-calc/{}/OnDemand/Dedicated/Linux/NA/No%20License%20required/Yes/index.json"
 
-func addDedicatedHostPricingCn(instances map[string]*EC2Instance, regionsInverted map[string]string) {
+func addDedicatedHostPricingCn(instances map[string]*EC2Instance, regionsInverted map[string]string) error {
 	log.Default().Println("Adding dedicated host pricing to EC2 (China)")
 	instancesMu := &sync.Mutex{}
 
@@ -310,7 +326,7 @@ func addDedicatedHostPricingCn(instances map[string]*EC2Instance, regionsInverte
 	for region := range regionsInverted {
 		// Get the on demand pricing
 		onDemandFg := &utils.FunctionGroup{}
-		onDemandFg.Add(func() {
+		onDemandFg.Add(func() error {
 			regionEncoded := url.PathEscape(region)
 			url := strings.Replace(
 				DEDICATED_HOST_ON_DEMAND_URL_CN,
@@ -322,7 +338,7 @@ func addDedicatedHostPricingCn(instances map[string]*EC2Instance, regionsInverte
 			var dedicatedHostOnDemandData dedicatedHostOnDemandData
 			err := awsutils.FetchDataFromAWSWebsite(url, &dedicatedHostOnDemandData)
 			if err != nil {
-				log.Fatalln("Failed to fetch dedicated host on demand data", err)
+				return fmt.Errorf("fetch China dedicated host on-demand data for %s: %w", region, err)
 			}
 
 			regionSlug := regionsInverted[region]
@@ -331,27 +347,36 @@ func addDedicatedHostPricingCn(instances map[string]*EC2Instance, regionsInverte
 				for _, price := range regionData {
 					for instanceType, instance := range instances {
 						if dedicatedHostInstanceTypeMatches(instanceType, price.InstanceType) {
-							addDedicatedHostOnDemandPrice(instance, regionSlug, price.Price)
+							if err := addDedicatedHostOnDemandPrice(instance, regionSlug, price.Price); err != nil {
+								instancesMu.Unlock()
+								return err
+							}
 						}
 					}
 				}
 			}
 			instancesMu.Unlock()
+			return nil
 		})
-		onDemandFg.Run()
+		if err := onDemandFg.Run(); err != nil {
+			return err
+		}
 
 		// Get the reserved pricing
 		reservedFg := &utils.FunctionGroup{}
 		for _, term := range DEDICATED_TERMS {
 			for _, paymentOption := range DEDICATED_PAYMENT_OPTIONS {
-				reservedFg.Add(func() {
-					loadDedicatedHostReservedData(
+				reservedFg.Add(func() error {
+					return loadDedicatedHostReservedData(
 						region, regionsInverted, term, paymentOption, instances,
 						instancesMu, true,
 					)
 				})
 			}
 		}
-		reservedFg.Run()
+		if err := reservedFg.Run(); err != nil {
+			return err
+		}
 	}
+	return nil
 }

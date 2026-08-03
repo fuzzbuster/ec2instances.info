@@ -260,7 +260,7 @@ func isSeparatorRow(cells []string) bool {
 // matching instance that has instance storage. Instances without a documented
 // value are left untouched (no fabricated zeros). Fails loud on fetch errors or
 // when nothing parses/matches, so a broken scrape never ships empty data.
-func addStorageIopsInfo(instances map[string]*EC2Instance) {
+func addStorageIopsInfo(instances map[string]*EC2Instance) error {
 	log.Default().Println("Adding instance store IOPS to EC2")
 
 	allIops := map[string]storageIops{}
@@ -268,7 +268,7 @@ func addStorageIopsInfo(instances map[string]*EC2Instance) {
 		url := fmt.Sprintf("%s/%s.md", awsInstanceTypeDocBase, slug)
 		body, err := utils.FetchWithRetry(url, nil)
 		if err != nil {
-			log.Fatalln("Failed to fetch instance store IOPS doc", url, err)
+			return fmt.Errorf("fetch instance store IOPS document %s: %w", url, err)
 		}
 		parsed := parseIopsTable(string(body))
 		log.Default().Printf("%s.md: %d instance types with IOPS", slug, len(parsed))
@@ -278,7 +278,7 @@ func addStorageIopsInfo(instances map[string]*EC2Instance) {
 	}
 
 	if len(allIops) == 0 {
-		log.Fatalln("Parsed zero instance store IOPS entries across all docs")
+		return fmt.Errorf("parsed zero instance store IOPS entries across all documents")
 	}
 
 	matched := 0
@@ -298,8 +298,8 @@ func addStorageIopsInfo(instances map[string]*EC2Instance) {
 	}
 
 	if matched == 0 {
-		log.Fatalln("Zero instances matched instance store IOPS data; IOPS entries:", len(allIops))
+		return fmt.Errorf("zero instances matched %d instance store IOPS entries", len(allIops))
 	}
-
 	log.Default().Printf("Merged instance store IOPS into %d instances (of %d IOPS entries)", matched, len(allIops))
+	return nil
 }

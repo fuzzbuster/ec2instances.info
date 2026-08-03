@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	outputFilePath = "www/tencentcloud/instances.json"
+	outputFilePath = "tencentcloud/instances.json"
 	// CVM API endpoint (international)
 	cvmAPIEndpoint = "https://cvm.tencentcloudapi.com"
 	// Regions to scrape when using the signed API
@@ -336,7 +336,7 @@ func archForFamily(family string) []string {
 // ----- main entry point -----
 
 // DoTencentcloudScraping is called from main.go.
-func DoTencentcloudScraping() {
+func DoTencentcloudScraping() error {
 	log.Println("[tencentcloud] starting scrape")
 
 	all := map[string]*CVMInstance{}
@@ -381,6 +381,9 @@ func DoTencentcloudScraping() {
 		return sorted[i].InstanceType < sorted[j].InstanceType
 	})
 
-	utils.SaveInstances(sorted, outputFilePath)
+	if err := utils.SaveInstances(sorted, outputFilePath); err != nil {
+		return fmt.Errorf("save Tencent Cloud instances: %w", err)
+	}
 	log.Printf("[tencentcloud] wrote %d instances to %s", len(sorted), outputFilePath)
+	return nil
 }

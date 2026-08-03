@@ -3,7 +3,6 @@ package ec2
 import (
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
-	"log"
 	"regexp"
 	"strings"
 
@@ -21,7 +20,7 @@ func capitalize(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-func translateReservedTermAttributes(termAttributes map[string]string) string {
+func translateReservedTermAttributes(termAttributes map[string]string) (string, error) {
 	leaseContractLength := termAttributes["LeaseContractLength"]
 	purchaseOption := termAttributes["PurchaseOption"]
 	offeringClass := termAttributes["OfferingClass"]
@@ -30,10 +29,10 @@ func translateReservedTermAttributes(termAttributes map[string]string) string {
 	option := awsutils.PURCHASE_OPTIONS[purchaseOption]
 
 	if lease == "" || option == "" || offeringClass == "" {
-		log.Fatalln("EC2 Reserved pricing data makes unknown term code", termAttributes)
+		return "", fmt.Errorf("EC2 reserved pricing has unknown term attributes: %v", termAttributes)
 	}
 
-	return lease + capitalize(offeringClass) + "." + option
+	return lease + capitalize(offeringClass) + "." + option, nil
 }
 
 var RE_REPLACE = regexp.MustCompile(`\*\d$`)

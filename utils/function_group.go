@@ -1,6 +1,9 @@
 package utils
 
-import "sync"
+import (
+	"errors"
+	"sync"
+)
 
 // maxConcurrentFetches bounds how many FunctionGroup functions run at once.
 //
@@ -18,29 +21,31 @@ const maxConcurrentFetches = 16
 // FunctionGroup is a group of functions that are called in parallel, with the
 // number of simultaneously running functions bounded by maxConcurrentFetches.
 type FunctionGroup struct {
-	fns []func()
+	fns []func() error
 }
 
 // Add adds a function to the group.
-func (fg *FunctionGroup) Add(fn func()) {
+func (fg *FunctionGroup) Add(fn func() error) {
 	fg.fns = append(fg.fns, fn)
 }
 
 // Run runs the functions in parallel, with at most maxConcurrentFetches running
 // at any given time. It blocks until all functions have completed.
-func (fg *FunctionGroup) Run() {
+func (fg *FunctionGroup) Run() error {
 	wg := sync.WaitGroup{}
 	wg.Add(len(fg.fns))
+	errs := make([]error, len(fg.fns))
 	// Buffered channel acts as a counting semaphore: a slot must be acquired
 	// before a function runs and is released when it finishes.
 	sem := make(chan struct{}, maxConcurrentFetches)
-	for _, fn := range fg.fns {
+	for i, fn := range fg.fns {
 		sem <- struct{}{}
-		go func() {
+		go func(index int, run func() error) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fn()
-		}()
+			errs[index] = run()
+		}(i, fn)
 	}
 	wg.Wait()
+	return errors.Join(errs...)
 }

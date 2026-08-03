@@ -129,7 +129,7 @@ func parseSpecs(instance *AzureSpecsData, capabilities []AzureSpecsApiIteratorIt
 	}
 }
 
-func processRawSkuSpecs(rawSkus []*AzureSpecsApiIteratorItem) {
+func processRawSkuSpecs(rawSkus []*AzureSpecsApiIteratorItem) error {
 	// Make the specs.
 	instanceTypes := map[string]*AzureSpecsData{}
 	for _, sku := range rawSkus {
@@ -156,6 +156,9 @@ func processRawSkuSpecs(rawSkus []*AzureSpecsApiIteratorItem) {
 	})
 
 	// Write them.
-	utils.SaveInstances(specs, "www/azure/instances-specs.json")
+	if err := utils.SaveInstances(specs, "azure/instances-specs.json"); err != nil {
+		return err
+	}
 	log.Default().Println("Wrote instance specs (in case anyone uses them!)")
+	return nil
 }

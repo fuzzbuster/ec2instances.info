@@ -1,15 +1,14 @@
 package awsutils
 
 import (
-	"log"
+	"fmt"
 	"strconv"
 )
 
-// Floaty makes sure a string is a float64, and crashes if it's not
-func Floaty(s string) float64 {
+func Floaty(s string) (float64, error) {
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		log.Fatalln("Failed to parse float", s)
+		return 0, fmt.Errorf("parse float %q: %w", s, err)
 	}
-	return f
+	return f, nil
 }

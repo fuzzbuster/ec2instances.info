@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,14 +16,34 @@ func TestFunctionGroupRunsAll(t *testing.T) {
 
 	fg := FunctionGroup{}
 	for i := 0; i < n; i++ {
-		fg.Add(func() {
+		fg.Add(func() error {
 			atomic.AddInt64(&executed, 1)
+			return nil
 		})
 	}
-	fg.Run()
+	if err := fg.Run(); err != nil {
+		t.Fatal(err)
+	}
 
 	if got := atomic.LoadInt64(&executed); got != n {
 		t.Fatalf("expected %d functions to run, got %d", n, got)
+	}
+}
+
+func TestFunctionGroupReturnsAllErrors(t *testing.T) {
+	first := errors.New("first")
+	second := errors.New("second")
+	var group FunctionGroup
+	group.Add(func() error { return first })
+	group.Add(func() error { return nil })
+	group.Add(func() error { return second })
+
+	err := group.Run()
+	if !errors.Is(err, first) || !errors.Is(err, second) {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "first\nsecond") {
+		t.Fatalf("Run() error order = %q", err)
 	}
 }
 
@@ -34,7 +56,7 @@ func TestFunctionGroupBoundsConcurrency(t *testing.T) {
 
 	fg := FunctionGroup{}
 	for i := 0; i < n; i++ {
-		fg.Add(func() {
+		fg.Add(func() error {
 			c := atomic.AddInt64(&current, 1)
 			// Track the high-water mark of concurrent executions.
 			for {
@@ -47,9 +69,12 @@ func TestFunctionGroupBoundsConcurrency(t *testing.T) {
 			// semaphore is actually exercised.
 			time.Sleep(2 * time.Millisecond)
 			atomic.AddInt64(&current, -1)
+			return nil
 		})
 	}
-	fg.Run()
+	if err := fg.Run(); err != nil {
+		t.Fatal(err)
+	}
 
 	if got := atomic.LoadInt64(&maxObserved); got > maxConcurrentFetches {
 		t.Fatalf("observed %d concurrent executions, exceeds cap of %d", got, maxConcurrentFetches)

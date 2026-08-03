@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	outputFilePath = "www/hetzner/instances.json"
+	outputFilePath = "hetzner/instances.json"
 	priceAPIURL    = "https://website-price-api.hetzner.com/api/v1/products/%s"
 )
 
@@ -80,8 +80,11 @@ type VPSInstance struct {
 	Regions            map[string]string                        `json:"regions"`
 }
 
-func DoHetznerScraping() {
-	plans := fetchPlans()
+func DoHetznerScraping() error {
+	plans, err := fetchPlans()
+	if err != nil {
+		return err
+	}
 	instances := make([]VPSInstance, 0, len(plans))
 
 	for _, plan := range plans {
@@ -101,7 +104,11 @@ func DoHetznerScraping() {
 			Regions:            map[string]string{},
 		}
 
-		for _, location := range fetchPrices(plan.ProductKey) {
+		locations, err := fetchPrices(plan.ProductKey)
+		if err != nil {
+			return err
+		}
+		for _, location := range locations {
 			if !location.Active {
 				continue
 			}
@@ -126,18 +133,21 @@ func DoHetznerScraping() {
 		return instances[i].InstanceType < instances[j].InstanceType
 	})
 
-	utils.SaveInstances(instances, outputFilePath)
+	if err := utils.SaveInstances(instances, outputFilePath); err != nil {
+		return fmt.Errorf("save Hetzner instances: %w", err)
+	}
 	log.Printf("[hetzner] wrote %d cloud plans", len(instances))
+	return nil
 }
 
-func fetchPlans() []Plan {
+func fetchPlans() ([]Plan, error) {
 	plans := []Plan{}
 	seen := map[string]struct{}{}
 
 	for _, page := range productPages {
 		body, err := utils.FetchWithRetry(page.url, nil)
 		if err != nil {
-			log.Fatalf("[hetzner] fetch %s: %v", page.url, err)
+			return nil, fmt.Errorf("fetch Hetzner plans from %s: %w", page.url, err)
 		}
 		for _, plan := range parsePlans(string(body), page.family) {
 			if _, ok := seen[plan.Name]; ok {
@@ -148,9 +158,9 @@ func fetchPlans() []Plan {
 		}
 	}
 	if len(plans) == 0 {
-		log.Fatal("[hetzner] no cloud plans found")
+		return nil, fmt.Errorf("no Hetzner cloud plans found")
 	}
-	return plans
+	return plans, nil
 }
 
 func parsePlans(pageHTML string, family string) []Plan {
@@ -197,18 +207,18 @@ func parsePlans(pageHTML string, family string) []Plan {
 	return plans
 }
 
-func fetchPrices(productKey string) []PriceLocation {
+func fetchPrices(productKey string) ([]PriceLocation, error) {
 	url := fmt.Sprintf(priceAPIURL, productKey)
 	body, err := utils.FetchWithRetry(url, nil)
 	if err != nil {
-		log.Fatalf("[hetzner] fetch prices for %s: %v", productKey, err)
+		return nil, fmt.Errorf("fetch Hetzner prices for %s: %w", productKey, err)
 	}
 
 	var response PriceResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		log.Fatalf("[hetzner] parse prices for %s: %v", productKey, err)
+		return nil, fmt.Errorf("parse Hetzner prices for %s: %w", productKey, err)
 	}
-	return response.Locations
+	return response.Locations, nil
 }
 
 func submatch(value string, re *regexp.Regexp, index int) string {

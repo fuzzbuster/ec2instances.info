@@ -1,9 +1,9 @@
 package ec2
 
 import (
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,8 +13,8 @@ import (
 )
 
 type ec2DataGetters struct {
-	spotDataPartialGetter func() *spotDataPartial
-	t2HtmlGetter          func() *soup.Root
+	spotDataPartialGetter func() (*spotDataPartial, error)
+	t2HtmlGetter          func() (*soup.Root, error)
 }
 
 var EC2_OK_PRODUCT_FAMILIES = map[string]bool{
@@ -42,7 +42,7 @@ func processEC2Data(
 	ec2ApiResponses *utils.SlowBuildingMap[string, *types.InstanceTypeInfo],
 	china bool,
 	getters ec2DataGetters,
-) {
+) error {
 	// Defines the currency
 	currency := "USD"
 	if china {
@@ -57,7 +57,7 @@ func processEC2Data(
 	regionDescriptions := make(map[string]string)
 
 	// Process each region as it comes in
-	var savingsPlanData func() map[string]map[string]map[string]float64
+	var savingsPlanData func() (map[string]map[string]map[string]float64, error)
 	for rawRegion := range inData {
 		// Close the channel when we're done
 		if rawRegion.SavingsPlanData != nil {
@@ -81,7 +81,7 @@ func processEC2Data(
 			location := product.Attributes["location"]
 			if location != "" {
 				if regionDescription != "" && regionDescription != location {
-					log.Fatalln("EC2 Region description mismatch", regionDescription, location, "for", instanceType)
+					return fmt.Errorf("EC2 region description mismatch: %q and %q for %s", regionDescription, location, instanceType)
 				}
 				regionDescription = location
 			}
@@ -128,7 +128,9 @@ func processEC2Data(
 				}
 			}
 
-			enrichEc2Instance(instance, product.Attributes, ec2ApiResponses)
+			if err := enrichEc2Instance(instance, product.Attributes, ec2ApiResponses); err != nil {
+				return err
+			}
 		}
 
 		// Gets the pricing data for the region/platform. Creates if it doesn't exist.
@@ -168,7 +170,7 @@ func processEC2Data(
 
 				// Get the price dimension
 				if len(offer.PriceDimensions) != 1 {
-					log.Fatalln("EC2 Pricing data has more than one price dimension for on demand", offer.SKU, instance.InstanceType)
+					return fmt.Errorf("EC2 on-demand offer %s for %s has %d price dimensions", offer.SKU, instance.InstanceType, len(offer.PriceDimensions))
 				}
 				var priceDimension awsutils.RegionPriceDimension
 				for _, priceDimension = range offer.PriceDimensions {
@@ -181,12 +183,7 @@ func processEC2Data(
 					if ok {
 						usdFloat, err := strconv.ParseFloat(usd, 64)
 						if err != nil {
-							log.Fatalln(
-								"Unable to parse EC2 pricing data for",
-								offer.SKU,
-								instance.InstanceType,
-								priceDimension.PricePerUnit,
-							)
+							return fmt.Errorf("parse EC2 price for offer %s instance %s: %w", offer.SKU, instance.InstanceType, err)
 						}
 						pricingData := getPricingData(instance, platform)
 						if usdFloat == 0 {
@@ -195,7 +192,7 @@ func processEC2Data(
 						}
 						old, err := strconv.ParseFloat(pricingData.OnDemand, 64)
 						if err != nil && pricingData.OnDemand != "" {
-							log.Fatalln("Unable to parse EC2 pricing data for", offer.SKU, instance.InstanceType, pricingData.OnDemand)
+							return fmt.Errorf("parse existing EC2 price %q for offer %s instance %s: %w", pricingData.OnDemand, offer.SKU, instance.InstanceType, err)
 						}
 						if old < usdFloat {
 							pricingData.OnDemand = formatPrice(usdFloat)
@@ -227,35 +224,46 @@ func processEC2Data(
 				}
 
 				// Process this reserved offer
-				processReservedOffer(
+				if err := processReservedOffer(
 					pricingData,
 					offer.PriceDimensions,
 					offer.TermAttributes,
 					currency,
-				)
+				); err != nil {
+					return err
+				}
 			}
 		}
 
 		// Set the region description
 		if regionDescription == "" {
-			log.Fatalln("EC2 Region description missing for", rawRegion.RegionName)
+			return fmt.Errorf("EC2 region description missing for %s", rawRegion.RegionName)
 		} else {
 			regionDescriptions[rawRegion.RegionName] = regionDescription
 		}
 	}
+	if savingsPlanData == nil {
+		return fmt.Errorf("EC2 pricing stream ended before savings plan data")
+	}
 
 	// Add spot pricing if not China
 	if !china {
-		addSpotPricing(instancesHashmap, regionDescriptions)
+		if err := addSpotPricing(instancesHashmap, regionDescriptions); err != nil {
+			return err
+		}
 	}
 
 	// Add EBS pricing if not China
 	if !china {
-		addEBSPricing(instancesHashmap, currency)
+		if err := addEBSPricing(instancesHashmap, currency); err != nil {
+			return err
+		}
 	}
 
 	// Add T2 credits
-	addT2Credits(instancesHashmap, getters.t2HtmlGetter)
+	if err := addT2Credits(instancesHashmap, getters.t2HtmlGetter); err != nil {
+		return err
+	}
 
 	// Invert the regions map
 	regionsInverted := make(map[string]string)
@@ -270,16 +278,6 @@ func processEC2Data(
 		regionsInverted["EU (Zurich)"] = "eu-central-2"
 	}
 
-	// Add EMR pricing
-	if china {
-		addEmrPricingCn(instancesHashmap, regionsInverted)
-	} else {
-		addEmrPricingUs(instancesHashmap, regionsInverted)
-	}
-
-	// Add EKS Auto Mode management fees (AmazonEKS Price List)
-	addEksAutoModePricing(instancesHashmap, china)
-
 	// Add GPU information
 	addGpuInfo(instancesHashmap)
 
@@ -287,20 +285,28 @@ func processEC2Data(
 	addFpgaInfo(instancesHashmap)
 
 	// Add instance store random read/write IOPS from the AWS instance-type docs
-	addStorageIopsInfo(instancesHashmap)
+	if err := addStorageIopsInfo(instancesHashmap); err != nil {
+		return err
+	}
 
 	// Add placement group information
 	addPlacementGroupInfo(instancesHashmap)
 
 	// Add dedicated host pricing
 	if china {
-		addDedicatedHostPricingCn(instancesHashmap, regionsInverted)
+		if err := addDedicatedHostPricingCn(instancesHashmap, regionsInverted); err != nil {
+			return err
+		}
 	} else {
-		addDedicatedHostPricingUs(instancesHashmap, regionsInverted)
+		if err := addDedicatedHostPricingUs(instancesHashmap, regionsInverted); err != nil {
+			return err
+		}
 	}
 
 	// Add spot interrupt information
-	addSpotInterruptInfo(instancesHashmap, getters.spotDataPartialGetter, china)
+	if err := addSpotInterruptInfo(instancesHashmap, getters.spotDataPartialGetter, china); err != nil {
+		return err
+	}
 
 	// Add Linux AMI info
 	addLinuxAmiInfo(instancesHashmap)
@@ -311,11 +317,12 @@ func processEC2Data(
 	// Add date introduced from instancetyp.es timeline
 	addDateIntroduced(instancesHashmap)
 
-	// Add max pods info
-	addMaxPodsInfo(instancesHashmap)
-
 	// Add savings plans pricing
-	for region, skuMap := range savingsPlanData() {
+	savingsPlans, err := savingsPlanData()
+	if err != nil {
+		return fmt.Errorf("load EC2 savings plans: %w", err)
+	}
+	for region, skuMap := range savingsPlans {
 		for sku, termMap := range skuMap {
 			skuInfo, ok := sku2SkuData[sku]
 			if !ok {
@@ -361,9 +368,12 @@ func processEC2Data(
 	sort.Slice(sortedInstances, func(i, j int) bool {
 		return sortedInstances[i].InstanceType < sortedInstances[j].InstanceType
 	})
-	fp := "www/instances.json"
+	fp := "instances.json"
 	if china {
-		fp = "www/instances-cn.json"
+		fp = "instances-cn.json"
 	}
-	utils.SaveInstances(sortedInstances, fp)
+	if err := utils.SaveInstances(sortedInstances, fp); err != nil {
+		return fmt.Errorf("save EC2 instances: %w", err)
+	}
+	return nil
 }

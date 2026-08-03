@@ -9,8 +9,6 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.12
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.294.1
-	github.com/aws/aws-sdk-go-v2/service/elasticache v1.46.3
-	github.com/aws/aws-sdk-go-v2/service/rds v1.119.4
 	github.com/zcalusic/sysinfo v1.1.3
 )
 

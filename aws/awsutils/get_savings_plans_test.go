@@ -1,8 +1,13 @@
 package awsutils
 
 import (
+	"math"
 	"testing"
 )
+
+func approxEqual(a, b float64) bool {
+	return math.Abs(a-b) < 1e-9
+}
 
 func TestSavingsPlanTermSuffix(t *testing.T) {
 	tests := []struct {
@@ -11,7 +16,6 @@ func TestSavingsPlanTermSuffix(t *testing.T) {
 	}{
 		{"EC2InstanceSavingsPlans", "InstanceSavings"},
 		{"ComputeSavingsPlans", "Savings"},
-		{"DatabaseSavingsPlans", "DatabaseSavings"},
 		{"SageMakerSavingsPlans", "Savings"},
 	}
 	for _, tc := range tests {
@@ -32,10 +36,12 @@ func TestTranslateReservedTermAttributes(t *testing.T) {
 		{"1yr", "EC2InstanceSavingsPlans", "No Upfront", "yrTerm1InstanceSavings.noUpfront"},
 		{"3yr", "ComputeSavingsPlans", "All Upfront", "yrTerm3Savings.allUpfront"},
 		{"3yr", "EC2InstanceSavingsPlans", "Partial Upfront", "yrTerm3InstanceSavings.partialUpfront"},
-		{"1yr", "DatabaseSavingsPlans", "No Upfront", "yrTerm1DatabaseSavings.noUpfront"},
 	}
 	for _, tc := range tests {
-		got := translateReservedTermAttributes(tc.purchaseTerm, tc.productFamily, tc.purchaseOption)
+		got, err := translateReservedTermAttributes(tc.purchaseTerm, tc.productFamily, tc.purchaseOption)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if got != tc.want {
 			t.Errorf(
 				"translateReservedTermAttributes(%q, %q, %q) = %q, want %q",
@@ -104,12 +110,15 @@ func TestProcessSavingsPlanRegionKeepsBothFamilies(t *testing.T) {
 	}
 
 	got := map[string]float64{}
-	processSavingsPlanRegion(raw, false, func(s sku, termKey term, price float64) {
+	err := processSavingsPlanRegion(raw, false, func(s sku, termKey term, price float64) {
 		if s != discountedSKU {
 			t.Fatalf("unexpected discounted sku %q", s)
 		}
 		got[string(termKey)] = price
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(got) != 2 {
 		t.Fatalf("got %d term keys, want 2: %#v", len(got), got)

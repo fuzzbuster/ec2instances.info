@@ -8,8 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"log"
 	"net/url"
 	"os"
 	"strings"
@@ -45,17 +45,17 @@ var cachedToken string
 var tokenExpiry time.Time
 
 // getGCPAccessToken returns an OAuth2 access token for GCP APIs
-func getGCPAccessToken() string {
+func getGCPAccessToken() (string, error) {
 	// Check if we have a valid cached token
 	if cachedToken != "" && time.Now().Before(tokenExpiry) {
-		return cachedToken
+		return cachedToken, nil
 	}
 
 	clientEmail := os.Getenv("GCP_CLIENT_EMAIL")
 	privateKey := os.Getenv("GCP_PRIVATE_KEY")
 
 	if clientEmail == "" || privateKey == "" {
-		log.Fatal("GCP_CLIENT_EMAIL and GCP_PRIVATE_KEY must be set")
+		return "", fmt.Errorf("GCP_CLIENT_EMAIL and GCP_PRIVATE_KEY must be set")
 	}
 
 	// Create JWT
@@ -76,11 +76,11 @@ func getGCPAccessToken() string {
 	// Encode header and claims
 	headerJSON, err := json.Marshal(header)
 	if err != nil {
-		log.Fatal("Failed to marshal JWT header:", err)
+		return "", fmt.Errorf("marshal JWT header: %w", err)
 	}
 	claimsJSON, err := json.Marshal(claims)
 	if err != nil {
-		log.Fatal("Failed to marshal JWT claims:", err)
+		return "", fmt.Errorf("marshal JWT claims: %w", err)
 	}
 
 	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
@@ -93,7 +93,7 @@ func getGCPAccessToken() string {
 
 	block, _ := pem.Decode([]byte(privateKey))
 	if block == nil {
-		log.Fatal("Failed to decode PEM block from private key")
+		return "", fmt.Errorf("decode PEM block from private key")
 	}
 
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
@@ -101,20 +101,20 @@ func getGCPAccessToken() string {
 		// Try PKCS1 format as fallback
 		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 		if err != nil {
-			log.Fatal("Failed to parse private key:", err)
+			return "", fmt.Errorf("parse private key: %w", err)
 		}
 	}
 
 	rsaKey, ok := key.(*rsa.PrivateKey)
 	if !ok {
-		log.Fatal("Private key is not RSA")
+		return "", fmt.Errorf("private key is not RSA")
 	}
 
 	// Sign the JWT
 	hash := sha256.Sum256([]byte(signInput))
 	signature, err := rsa.SignPKCS1v15(nil, rsaKey, crypto.SHA256, hash[:])
 	if err != nil {
-		log.Fatal("Failed to sign JWT:", err)
+		return "", fmt.Errorf("sign JWT: %w", err)
 	}
 
 	signatureB64 := base64.RawURLEncoding.EncodeToString(signature)
@@ -128,19 +128,19 @@ func getGCPAccessToken() string {
 
 	respBody, err := utils.PostFormWithRetry(gcpTokenURL, form)
 	if err != nil {
-		log.Fatal("Failed to request access token:", err)
+		return "", fmt.Errorf("request access token: %w", err)
 	}
 
 	var token tokenResponse
 	if err := json.Unmarshal(respBody, &token); err != nil {
-		log.Fatal("Failed to decode token response:", err)
+		return "", fmt.Errorf("decode token response: %w", err)
 	}
 
 	// Cache the token (with 5 minute buffer before expiry)
 	cachedToken = token.AccessToken
 	tokenExpiry = now.Add(time.Duration(token.ExpiresIn-300) * time.Second)
 
-	return cachedToken
+	return cachedToken, nil
 }
 
 // makeGCPAuthenticatedRequest makes an authenticated request to a GCP API.
@@ -149,7 +149,10 @@ func getGCPAccessToken() string {
 // transient failures (e.g. the read timeout seen on the machineTypes endpoint)
 // are retried with backoff instead of aborting the whole scrape.
 func makeGCPAuthenticatedRequest(url string, result interface{}) error {
-	token := getGCPAccessToken()
+	token, err := getGCPAccessToken()
+	if err != nil {
+		return err
+	}
 
 	body, err := utils.FetchWithRetry(url, &token)
 	if err != nil {

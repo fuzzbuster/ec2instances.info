@@ -39,7 +39,9 @@ func TestEnrichEc2InstancePrefersAwsClockSpeedOverExtras(t *testing.T) {
 	instance := &EC2Instance{InstanceType: "m6g.medium"}
 	instance.addExtraDetails()
 
-	ec2ApiResponses := utils.NewSlowBuildingMap[string, *types.InstanceTypeInfo](func(pushChunk func(map[string]*types.InstanceTypeInfo)) {})
+	ec2ApiResponses := utils.NewSlowBuildingMap[string, *types.InstanceTypeInfo](func(pushChunk func(map[string]*types.InstanceTypeInfo)) error {
+		return nil
+	})
 	enrichEc2Instance(instance, map[string]string{
 		"instanceFamily": "General purpose",
 		"vcpu":           "1",

@@ -2,13 +2,13 @@ package azure
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"log"
 	"net/url"
 	"os"
 )
 
-func getAzureAccessToken() string {
+func getAzureAccessToken() (string, error) {
 	tenantId := os.Getenv("AZURE_TENANT_ID")
 	clientId := os.Getenv("AZURE_CLIENT_ID")
 	clientSecret := os.Getenv("AZURE_CLIENT_SECRET")
@@ -23,7 +23,7 @@ func getAzureAccessToken() string {
 
 	respBody, err := utils.PostFormWithRetry(url, body)
 	if err != nil {
-		log.Fatal("Failed to get Azure access token: ", err)
+		return "", fmt.Errorf("get Azure access token: %w", err)
 	}
 
 	type justToken struct {
@@ -31,8 +31,8 @@ func getAzureAccessToken() string {
 	}
 	var token justToken
 	if err := json.Unmarshal(respBody, &token); err != nil {
-		log.Fatal("Failed to decode Azure access token: ", err)
+		return "", fmt.Errorf("decode Azure access token: %w", err)
 	}
 
-	return token.AccessToken
+	return token.AccessToken, nil
 }

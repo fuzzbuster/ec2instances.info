@@ -1,9 +1,9 @@
 package ec2
 
 import (
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"log"
 	"strconv"
 	"strings"
 
@@ -58,11 +58,11 @@ var EC2_FAMILY_NAMES = map[string]string{
 	"x1":      "X1 Extra High-Memory",
 }
 
-func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2ApiResponses *utils.SlowBuildingMap[string, *types.InstanceTypeInfo]) {
+func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2ApiResponses *utils.SlowBuildingMap[string, *types.InstanceTypeInfo]) error {
 	instance.Family = attributes["instanceFamily"]
 	VCPU, err := strconv.Atoi(attributes["vcpu"])
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("parse vCPU for %s: %w", instance.InstanceType, err)
 	}
 	instance.VCPU = append(instance.VCPU, VCPU)
 	switch instance.InstanceType {
@@ -75,7 +75,7 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 	default:
 		Memory, err := strconv.ParseFloat(strings.Split(attributes["memory"], " ")[0], 64)
 		if err != nil {
-			log.Fatal(err)
+			return fmt.Errorf("parse memory for %s: %w", instance.InstanceType, err)
 		}
 		instance.Memory = append(instance.Memory, Memory)
 	}
@@ -91,7 +91,10 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 		instance.PrettyName = awsutils.AddPrettyName(instance.InstanceType, EC2_FAMILY_NAMES)
 	}
 
-	apiDescription, hasApiDescription := ec2ApiResponses.Get(instance.InstanceType)
+	apiDescription, hasApiDescription, err := ec2ApiResponses.Get(instance.InstanceType)
+	if err != nil {
+		return fmt.Errorf("load EC2 API description for %s: %w", instance.InstanceType, err)
+	}
 	instance.PhysicalProcessor = attributes["physicalProcessor"]
 	if hasApiDescription {
 		arches := make([]string, len(apiDescription.ProcessorInfo.SupportedArchitectures))
@@ -169,7 +172,7 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 	if gpu != "" {
 		GPU, err := strconv.ParseFloat(gpu, 64)
 		if err != nil {
-			log.Fatal(err)
+			return fmt.Errorf("parse GPU count for %s: %w", instance.InstanceType, err)
 		}
 		instance.GPU = GPU
 	}
@@ -245,4 +248,5 @@ func enrichEc2Instance(instance *EC2Instance, attributes map[string]string, ec2A
 	if hasApiDescription {
 		addInstanceStorageDetails(instance, apiDescription)
 	}
+	return nil
 }

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	outputFilePath = "www/vultr/instances.json"
+	outputFilePath = "vultr/instances.json"
 	plansURL       = "https://api.vultr.com/v2/plans?per_page=500"
 	regionsURL     = "https://api.vultr.com/v2/regions?per_page=500"
 )
@@ -85,9 +85,15 @@ type VPSInstance struct {
 	Regions            map[string]string                        `json:"regions"`
 }
 
-func DoVultrScraping() {
-	regions := fetchRegions()
-	plans := fetchPlans()
+func DoVultrScraping() error {
+	regions, err := fetchRegions()
+	if err != nil {
+		return err
+	}
+	plans, err := fetchPlans()
+	if err != nil {
+		return err
+	}
 	instances := make([]VPSInstance, 0, len(plans))
 
 	for _, plan := range plans {
@@ -137,48 +143,51 @@ func DoVultrScraping() {
 		return instances[i].InstanceType < instances[j].InstanceType
 	})
 
-	utils.SaveInstances(instances, outputFilePath)
+	if err := utils.SaveInstances(instances, outputFilePath); err != nil {
+		return fmt.Errorf("save Vultr instances: %w", err)
+	}
 	log.Printf("[vultr] wrote %d plans", len(instances))
+	return nil
 }
 
-func fetchPlans() []Plan {
+func fetchPlans() ([]Plan, error) {
 	var all []Plan
 	nextURL := plansURL
 	for nextURL != "" {
 		body, err := utils.FetchWithRetry(nextURL, nil)
 		if err != nil {
-			log.Fatalf("[vultr] fetch plans: %v", err)
+			return nil, fmt.Errorf("fetch Vultr plans: %w", err)
 		}
 
 		var response PlanResponse
 		if err := json.Unmarshal(body, &response); err != nil {
-			log.Fatalf("[vultr] parse plans: %v", err)
+			return nil, fmt.Errorf("parse Vultr plans: %w", err)
 		}
 		all = append(all, response.Plans...)
 		nextURL = nextPage(plansURL, response.Meta.Links.Next)
 	}
-	return all
+	return all, nil
 }
 
-func fetchRegions() map[string]Region {
+func fetchRegions() (map[string]Region, error) {
 	regions := map[string]Region{}
 	nextURL := regionsURL
 	for nextURL != "" {
 		body, err := utils.FetchWithRetry(nextURL, nil)
 		if err != nil {
-			log.Fatalf("[vultr] fetch regions: %v", err)
+			return nil, fmt.Errorf("fetch Vultr regions: %w", err)
 		}
 
 		var response RegionResponse
 		if err := json.Unmarshal(body, &response); err != nil {
-			log.Fatalf("[vultr] parse regions: %v", err)
+			return nil, fmt.Errorf("parse Vultr regions: %w", err)
 		}
 		for _, region := range response.Regions {
 			regions[region.ID] = region
 		}
 		nextURL = nextPage(regionsURL, response.Meta.Links.Next)
 	}
-	return regions
+	return regions, nil
 }
 
 func nextPage(baseURL string, cursor string) string {

@@ -2,7 +2,7 @@ package utils
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,22 +10,31 @@ import (
 )
 
 // SaveInstances saves the instances to a file
-func SaveInstances(sortedInstances any, fp string) {
-	json, err := json.MarshalIndent(sortedInstances, "", " ")
+func SaveInstances(sortedInstances any, relativePath string) error {
+	jsonData, err := json.MarshalIndent(sortedInstances, "", " ")
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("marshal instances: %w", err)
 	}
-	jsonS, err := strconv.Unquote(strings.ReplaceAll(strconv.Quote(string(json)), `\\u`, `\u`))
+	jsonString, err := strconv.Unquote(strings.ReplaceAll(strconv.Quote(string(jsonData)), `\\u`, `\u`))
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = os.MkdirAll(filepath.Dir(fp), 0777)
-	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("normalize JSON: %w", err)
 	}
 
-	WriteAndCompressFile(fp, []byte(jsonS))
+	path, err := OutputPath(relativePath)
+	if err != nil {
+		return err
+	}
+	if err := ensureParent(path); err != nil {
+		return err
+	}
+	return writeAndCompressFile(path, []byte(jsonString))
+}
+
+func ensureParent(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create parent directory for %q: %w", path, err)
+	}
+	return nil
 }
 
 // AppendUnique appends v to s if v is not already present.

@@ -2,21 +2,21 @@ package utils
 
 import "sync"
 
-// BlockUntilDone is a function that blocks until the process is done.
-// After that, access is freely given.
-func BlockUntilDone[T any](hn func() T) func() T {
+// BlockUntilDone starts fn and returns a getter that waits for its result.
+func BlockUntilDone[T any](fn func() (T, error)) func() (T, error) {
 	mu := sync.RWMutex{}
 	mu.Lock()
 
 	var val T
+	var err error
 	go func() {
-		val = hn()
+		val, err = fn()
 		mu.Unlock()
 	}()
 
-	return func() T {
+	return func() (T, error) {
 		mu.RLock()
 		defer mu.RUnlock()
-		return val
+		return val, err
 	}
 }

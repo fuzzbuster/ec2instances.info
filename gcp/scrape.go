@@ -1,6 +1,7 @@
 package gcp
 
 import (
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"log"
 	"sort"
@@ -626,31 +627,31 @@ func processGCPData(skus []SKU, pricing map[string]PriceInfo, machineSpecs map[s
 }
 
 // Main scraping function
-func DoGCPScraping() {
+func DoGCPScraping() error {
 	log.Println("Fetching GCP regions from Compute Engine API...")
 	regions, err := fetchRegions()
 	if err != nil {
-		log.Fatal("Failed to fetch regions:", err)
+		return fmt.Errorf("fetch GCP regions: %w", err)
 	}
 
 	log.Println("Fetching GCP machine types from Compute Engine API...")
 	machineSpecs, err := fetchMachineTypes()
 	if err != nil {
-		log.Fatal("Failed to fetch machine types:", err)
+		return fmt.Errorf("fetch GCP machine types: %w", err)
 	}
 	log.Printf("Fetched %d GCP machine types", len(machineSpecs))
 
 	log.Println("Fetching GCP Compute Engine SKUs...")
 	skus, err := fetchComputeSKUs()
 	if err != nil {
-		log.Fatal("Failed to fetch SKUs:", err)
+		return fmt.Errorf("fetch GCP SKUs: %w", err)
 	}
 	log.Printf("Fetched %d GCP SKUs", len(skus))
 
 	log.Println("Fetching GCP pricing data...")
 	pricing, err := fetchPricing()
 	if err != nil {
-		log.Fatal("Failed to fetch pricing:", err)
+		return fmt.Errorf("fetch GCP pricing: %w", err)
 	}
 	log.Printf("Fetched pricing for %d GCP SKUs", len(pricing))
 
@@ -671,6 +672,9 @@ func DoGCPScraping() {
 	log.Printf("Processed %d unique GCP instance types", len(instances))
 
 	// Save to file
-	utils.SaveInstances(instances, "www/gcp/instances.json")
+	if err := utils.SaveInstances(instances, "gcp/instances.json"); err != nil {
+		return fmt.Errorf("save GCP instances: %w", err)
+	}
 	log.Println("GCP scraping completed successfully!")
+	return nil
 }

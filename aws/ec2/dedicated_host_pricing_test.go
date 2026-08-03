@@ -77,7 +77,11 @@ func TestDedicatedHostOnDemandAssignment(t *testing.T) {
 			InstanceType: it,
 			Pricing:      make(map[Region]map[OS]any),
 		}
-		want[it] = formatPrice(awsutils.Floaty(price))
+		value, err := awsutils.Floaty(price)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[it] = formatPrice(value)
 	}
 
 	// Replicate the assignment loop from addDedicatedHostPricingUs. We assign
@@ -85,7 +89,9 @@ func TestDedicatedHostOnDemandAssignment(t *testing.T) {
 	for sku, price := range skuPrices {
 		for instanceType, instance := range instances {
 			if dedicatedHostInstanceTypeMatches(instanceType, sku) {
-				addDedicatedHostOnDemandPrice(instance, region, price)
+				if err := addDedicatedHostOnDemandPrice(instance, region, price); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 	}

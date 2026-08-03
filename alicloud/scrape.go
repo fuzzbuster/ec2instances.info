@@ -35,7 +35,7 @@ import (
 const (
 	intlPricingURL = "https://g.alicdn.com/aliyun/ecs-price-info-intl/2.0.8/price/download/instancePrice.json"
 	cnPricingURL   = "https://g.alicdn.com/aliyun/ecs-price-info/2.0.8/price/download/instancePrice.json"
-	outputFilePath = "www/alicloud/instances.json"
+	outputFilePath = "alicloud/instances.json"
 )
 
 // ----- pricing response structs -----
@@ -453,7 +453,7 @@ func isUnreserved(c byte) bool {
 // ----- main entry point -----
 
 // DoAlicloudScraping is called from main.go.
-func DoAlicloudScraping() {
+func DoAlicloudScraping() error {
 	log.Println("[alicloud] starting scrape")
 
 	var intlPricing, cnPricing pricingFile
@@ -466,8 +466,7 @@ func DoAlicloudScraping() {
 		log.Printf("[alicloud] WARN: could not fetch CN pricing: %v", errCN)
 	}
 	if errIntl != nil && errCN != nil {
-		log.Println("[alicloud] ERROR: both pricing sources failed — aborting")
-		return
+		return fmt.Errorf("both pricing sources failed: international: %v; China: %v", errIntl, errCN)
 	}
 
 	apiSpecs := fetchSpecsFromAPI()
@@ -481,8 +480,11 @@ func DoAlicloudScraping() {
 		return sorted[i].InstanceType < sorted[j].InstanceType
 	})
 
-	utils.SaveInstances(sorted, outputFilePath)
+	if err := utils.SaveInstances(sorted, outputFilePath); err != nil {
+		return fmt.Errorf("save Alicloud instances: %w", err)
+	}
 	log.Printf("[alicloud] wrote %d instances to %s", len(sorted), outputFilePath)
+	return nil
 }
 
 func buildInstances(intl, cn pricingFile, apiSpecs map[string]*AliInstance) map[string]*AliInstance {

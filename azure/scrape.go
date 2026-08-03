@@ -2,6 +2,7 @@ package azure
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"log"
 	"os"
@@ -43,7 +44,7 @@ type AzureInstance struct {
 	disownedFromFamily bool
 }
 
-func enrichAzureInstance(instance *AzureInstance, instanceAttrs map[string]any, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem], type_ string) {
+func enrichAzureInstance(instance *AzureInstance, instanceAttrs map[string]any, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem], type_ string) error {
 	// Get the initial information from the fast loading json.
 	instance.PrettyName = instanceAttrs["instanceName"].(string)
 	instance.Family = instanceAttrs["series"].(string)
@@ -60,9 +61,12 @@ func enrichAzureInstance(instance *AzureInstance, instanceAttrs map[string]any, 
 	}
 
 	// Get the instance type from the specs api.
-	specs, ok := specsApiResponse.Get(strings.ReplaceAll(strings.ToLower(type_+instance.InstanceType), "_", ""))
+	specs, ok, err := specsApiResponse.Get(strings.ReplaceAll(strings.ToLower(type_+instance.InstanceType), "_", ""))
+	if err != nil {
+		return err
+	}
 	if !ok {
-		return
+		return nil
 	}
 	if instance.PrettyNameAzure == "" {
 		instance.PrettyNameAzure = strings.ReplaceAll(specs.Name, "_", " ")
@@ -74,9 +78,10 @@ func enrichAzureInstance(instance *AzureInstance, instanceAttrs map[string]any, 
 
 	// Parse the specs.
 	parseSpecs(&instance.AzureSpecsData, specs.Capabilities)
+	return nil
 }
 
-func processSpecsDataResult(instances map[string]*AzureInstance, instanceAttrs map[string]map[string]any, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem]) {
+func processSpecsDataResult(instances map[string]*AzureInstance, instanceAttrs map[string]map[string]any, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem]) error {
 	keysSorted := make([]string, 0, len(instanceAttrs))
 	for k := range instanceAttrs {
 		keysSorted = append(keysSorted, k)
@@ -103,44 +108,45 @@ func processSpecsDataResult(instances map[string]*AzureInstance, instanceAttrs m
 			}
 			instances[dashSplit[1]] = instance
 		}
-		enrichAzureInstance(instance, v, specsApiResponse, dashSplit[2])
+		if err := enrichAzureInstance(instance, v, specsApiResponse, dashSplit[2]); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func processAzureOsResponse(osSlug string, instances map[string]*AzureInstance, instancesMu *sync.Mutex, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem]) {
+func processAzureOsResponse(osSlug string, instances map[string]*AzureInstance, instancesMu *sync.Mutex, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem]) error {
 	url := strings.Replace(AZURE_OS_URL, "{}", osSlug, 1)
 
 	var rm json.RawMessage
 	if err := utils.LoadJson(url, &rm); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	var a map[string]map[string]map[string]any
 	if err := json.Unmarshal(rm, &a); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	b, err := json.MarshalIndent(a, "", "    ")
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = os.MkdirAll("www/azure", 0777)
-	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	m, ok := a["attributesByOffer"]
 	if !ok {
-		log.Fatal("attributesByOffer not found")
+		return fmt.Errorf("attributesByOffer not found")
 	}
 
 	log.Default().Println("Saving Azure OS response for", osSlug)
-	utils.WriteAndCompressFile("www/azure/"+osSlug+".json", b)
+	if err := utils.WriteAndCompressFile("azure/"+osSlug+".json", b); err != nil {
+		return err
+	}
 
 	instancesMu.Lock()
-	processSpecsDataResult(instances, m, specsApiResponse)
+	err = processSpecsDataResult(instances, m, specsApiResponse)
 	instancesMu.Unlock()
+	return err
 }
 
 var COPY_KEYS = map[string]map[string]string{
@@ -274,32 +280,30 @@ func processPricingDataForRegionAndOs(
 	osSlug string,
 	instancesPricing map[string]map[string]map[string]map[string]any,
 	instancesPricingMu *sync.Mutex,
-) {
+) error {
 	var a map[string]map[string]any
 	url := strings.Replace(AZURE_PLATFORM_AND_OS_URL, "{}", osSlug+"/"+region, 1)
 	if err := utils.LoadJson(url, &a); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	b, err := json.MarshalIndent(a, "", "    ")
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = os.MkdirAll("www/azure", 0777)
-	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	log.Default().Println("Saving Azure OS response for", region, osSlug)
-	utils.WriteAndCompressFile("www/azure/"+region+"_"+osSlug+".json", b)
+	if err := utils.WriteAndCompressFile("azure/"+region+"_"+osSlug+".json", b); err != nil {
+		return err
+	}
 
 	instancesPricingMu.Lock()
 	processPricingDataResult(instancesPricing, region, osSlug, a)
 	instancesPricingMu.Unlock()
+	return nil
 }
 
-func processAzureApi(regionsAndOsData *AzureRootData, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem]) map[string]*AzureInstance {
+func processAzureApi(regionsAndOsData *AzureRootData, specsApiResponse *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem]) (map[string]*AzureInstance, error) {
 	instancesPricing := make(map[string]map[string]map[string]map[string]any)
 	instancesPricingMu := sync.Mutex{}
 
@@ -309,17 +313,19 @@ func processAzureApi(regionsAndOsData *AzureRootData, specsApiResponse *utils.Sl
 	var fg utils.FunctionGroup
 
 	for _, os := range regionsAndOsData.OperatingSystems {
-		fg.Add(func() {
-			processAzureOsResponse(os.Slug, instances, &instancesMu, specsApiResponse)
+		fg.Add(func() error {
+			return processAzureOsResponse(os.Slug, instances, &instancesMu, specsApiResponse)
 		})
 		for _, region := range regionsAndOsData.Regions {
-			fg.Add(func() {
-				processPricingDataForRegionAndOs(region.Slug, os.Slug, instancesPricing, &instancesPricingMu)
+			fg.Add(func() error {
+				return processPricingDataForRegionAndOs(region.Slug, os.Slug, instancesPricing, &instancesPricingMu)
 			})
 		}
 	}
 
-	fg.Run()
+	if err := fg.Run(); err != nil {
+		return nil, err
+	}
 
 	regionMap := make(map[string]string)
 	for _, region := range regionsAndOsData.Regions {
@@ -339,7 +345,7 @@ func processAzureApi(regionsAndOsData *AzureRootData, specsApiResponse *utils.Sl
 		instance.Regions = regions
 	}
 
-	return instances
+	return instances, nil
 }
 
 type AzureSpecsApiIteratorItemCapability struct {
@@ -362,9 +368,12 @@ type AzureSpecsApiIteratorResult struct {
 }
 
 func getAzureSpecsApiIterator() *utils.SlowBuildingMap[string, *AzureSpecsApiIteratorItem] {
-	return utils.NewSlowBuildingMap(func(pushChunk func(map[string]*AzureSpecsApiIteratorItem)) {
+	return utils.NewSlowBuildingMap(func(pushChunk func(map[string]*AzureSpecsApiIteratorItem)) error {
 		// Get everything we need to start the request.
-		accessToken := getAzureAccessToken()
+		accessToken, err := getAzureAccessToken()
+		if err != nil {
+			return err
+		}
 		subId := os.Getenv("AZURE_SUBSCRIPTION_ID")
 
 		// Handle getting the raw skus.
@@ -374,13 +383,13 @@ func getAzureSpecsApiIterator() *utils.SlowBuildingMap[string, *AzureSpecsApiIte
 			// Firstly, cast into a raw message. We need to process this twice.
 			var rm json.RawMessage
 			if err := utils.LoadJsonWithBearerToken(apiUrl, &rm, &accessToken); err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			// Process it into the iterator result.
 			var a AzureSpecsApiIteratorResult
 			if err := json.Unmarshal(rm, &a); err != nil {
-				log.Fatal(err)
+				return err
 			}
 			rawSkus = append(rawSkus, a.Value...)
 
@@ -400,21 +409,24 @@ func getAzureSpecsApiIterator() *utils.SlowBuildingMap[string, *AzureSpecsApiIte
 		}
 
 		// Write the skus to a file.
-		processRawSkuSpecs(rawSkus)
+		return processRawSkuSpecs(rawSkus)
 	})
 }
 
 // DoAzureScraping is the main function that scrapes the Azure pricing data and saves it to a file.
-func DoAzureScraping() {
+func DoAzureScraping() error {
 	specsApiResponse := getAzureSpecsApiIterator()
 
 	var regionsAndOsData AzureRootData
 	if err := utils.LoadJson("https://azure.microsoft.com/api/v4/pricing/virtual-machines/metadata/", &regionsAndOsData); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("load Azure metadata: %w", err)
 	}
 
 	// Process the instances and pricing data
-	instances := processAzureApi(&regionsAndOsData, specsApiResponse)
+	instances, err := processAzureApi(&regionsAndOsData, specsApiResponse)
+	if err != nil {
+		return fmt.Errorf("process Azure data: %w", err)
+	}
 
 	// Warn about any instances that have specs missing.
 	for _, instance := range instances {
@@ -431,5 +443,8 @@ func DoAzureScraping() {
 	sort.Slice(instancesSorted, func(i, j int) bool {
 		return instancesSorted[i].InstanceType < instancesSorted[j].InstanceType
 	})
-	utils.SaveInstances(instancesSorted, "www/azure/instances.json")
+	if err := utils.SaveInstances(instancesSorted, "azure/instances.json"); err != nil {
+		return fmt.Errorf("save Azure instances: %w", err)
+	}
+	return nil
 }

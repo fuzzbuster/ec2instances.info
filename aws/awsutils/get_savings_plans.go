@@ -1,8 +1,8 @@
 package awsutils
 
 import (
+	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"log"
 	"strings"
 	"sync"
 )
@@ -25,29 +25,27 @@ func savingsPlanTermSuffix(productFamily string) string {
 	switch productFamily {
 	case "EC2InstanceSavingsPlans":
 		return "InstanceSavings"
-	case "DatabaseSavingsPlans":
-		return "DatabaseSavings"
 	default:
 		return "Savings" // Compute, SageMaker, etc.
 	}
 }
 
-func translateReservedTermAttributes(purchaseTerm, productFamily, purchaseOption string) string {
+func translateReservedTermAttributes(purchaseTerm, productFamily, purchaseOption string) (string, error) {
 	lease := LEASES[purchaseTerm]
 	option := PURCHASE_OPTIONS[purchaseOption]
 
 	if lease == "" || option == "" || productFamily == "" {
-		log.Fatalln("EC2 savings plan pricing data makes unknown term code", purchaseTerm, productFamily, purchaseOption)
+		return "", fmt.Errorf("EC2 savings plan has unknown term: %s %s %s", purchaseTerm, productFamily, purchaseOption)
 	}
 
-	return lease + savingsPlanTermSuffix(productFamily) + "." + option
+	return lease + savingsPlanTermSuffix(productFamily) + "." + option, nil
 }
 
 func processSavingsPlanRegion(
 	rawRegion RawSavingsPlanRegion,
 	isChina bool,
 	write func(sku, term, float64),
-) {
+) error {
 	sku2product := make(map[string]map[string]string)
 	for _, product := range rawRegion.Products {
 		sku2product[product.SKU] = product.Attributes
@@ -56,28 +54,35 @@ func processSavingsPlanRegion(
 	for _, t := range rawRegion.Terms.SavingsPlan {
 		productAttributes, ok := sku2product[t.SKU]
 		if !ok {
-			log.Fatalf("Could not find product for savings plan SKU %s", t.SKU)
+			return fmt.Errorf("product not found for savings plan SKU %s", t.SKU)
 		}
 
 		purchaseOption := productAttributes["purchaseOption"]
 		productFamily := productAttributes["productFamily"]
 		purchaseTerm := productAttributes["purchaseTerm"]
 
-		termKey := translateReservedTermAttributes(purchaseTerm, productFamily, purchaseOption)
+		termKey, err := translateReservedTermAttributes(purchaseTerm, productFamily, purchaseOption)
+		if err != nil {
+			return err
+		}
 
 		for _, rate := range t.Rates {
-			price := Floaty(rate.DiscountedRate.Price)
+			price, err := Floaty(rate.DiscountedRate.Price)
+			if err != nil {
+				return err
+			}
 			currency := "USD"
 			if isChina {
 				currency = "CNY"
 			}
 			if rate.DiscountedRate.Currency != currency {
-				log.Fatalf("Savings plan currency mismatch for SKU %s: expected %s, got %s", t.SKU, currency, rate.DiscountedRate.Currency)
+				return fmt.Errorf("savings plan currency mismatch for SKU %s: expected %s, got %s", t.SKU, currency, rate.DiscountedRate.Currency)
 			}
 
 			write(sku(rate.DiscountedSKU), term(termKey), price)
 		}
 	}
+	return nil
 }
 
 type awsSavingsPlanRegion struct {
@@ -93,34 +98,34 @@ func processSavingsPlans(
 	baseUrl, currentSavingsPlanIndexUrl string,
 	isChina bool,
 	write func(regionSlug, sku, term, float64),
-) {
+) error {
 	var savingsPlansData awsSavingsPlansIndexResponse
 	err := loadAwsUrlJson(baseUrl, currentSavingsPlanIndexUrl, &savingsPlansData)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	var fg utils.FunctionGroup
 	for _, regionMeta := range savingsPlansData.Regions {
-		fg.Add(func() {
+		fg.Add(func() error {
 			var rawRegion RawSavingsPlanRegion
 			err := loadAwsUrlJson(baseUrl, regionMeta.VersionUrl, &rawRegion)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			regionWrite := func(s sku, t term, price float64) {
 				write(regionSlug(regionMeta.RegionCode), s, t, price)
 			}
-			processSavingsPlanRegion(rawRegion, isChina, regionWrite)
+			return processSavingsPlanRegion(rawRegion, isChina, regionWrite)
 		})
 	}
-	fg.Run()
+	return fg.Run()
 }
 
 // GetSavingsPlans is used to get the savings plans data for a specific servica/base URL
 // Returns a function to get the map of regions to their instances and their savings plans data
-func GetSavingsPlans(baseUrl, currentSavingsPlanIndexUrl string, isChina bool) func() map[regionSlug]map[sku]map[term]float64 {
+func GetSavingsPlans(baseUrl, currentSavingsPlanIndexUrl string, isChina bool) func() (map[regionSlug]map[sku]map[term]float64, error) {
 	m := make(map[regionSlug]map[sku]map[term]float64)
 	mu := sync.Mutex{}
 	write := func(region regionSlug, s sku, t term, price float64) {
@@ -139,8 +144,10 @@ func GetSavingsPlans(baseUrl, currentSavingsPlanIndexUrl string, isChina bool) f
 		instanceMap[t] = price
 	}
 
-	return utils.BlockUntilDone(func() map[regionSlug]map[sku]map[term]float64 {
-		processSavingsPlans(baseUrl, currentSavingsPlanIndexUrl, isChina, write)
-		return m
+	return utils.BlockUntilDone(func() (map[regionSlug]map[sku]map[term]float64, error) {
+		if err := processSavingsPlans(baseUrl, currentSavingsPlanIndexUrl, isChina, write); err != nil {
+			return nil, err
+		}
+		return m, nil
 	})
 }

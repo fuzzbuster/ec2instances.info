@@ -34,7 +34,7 @@ type RegionData struct {
 type RawRegion struct {
 	// SavingsPlanData is set to non-nil when this is done. If nil, this is regular pricing data.
 	// If not, this is the end and the savings plan data is to be processed. The map can be nil.
-	SavingsPlanData func() map[regionSlug]map[sku]map[term]float64
+	SavingsPlanData func() (map[regionSlug]map[sku]map[term]float64, error)
 
 	RegionName string
 	RegionData RegionData
