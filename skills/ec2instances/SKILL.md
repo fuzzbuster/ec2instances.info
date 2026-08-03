@@ -61,9 +61,16 @@ Required credentials:
   `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`
 - `gcp`: `GCP_PROJECT_ID`, `GCP_CLIENT_EMAIL`, `GCP_PRIVATE_KEY`
 
-Alibaba Cloud, Tencent Cloud, Volcengine, and Huawei Cloud can use optional
-credentials to enrich their static seed data. Vultr, Linode, DigitalOcean, and
-Hetzner need no credentials.
+Optional credentials:
+
+- `alicloud`: `ALICLOUD_ACCESS_KEY`, `ALICLOUD_SECRET_KEY`
+- `tencentcloud`: `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`
+- `volcengine`: `VOLCENGINE_ACCESS_KEY`, `VOLCENGINE_SECRET_KEY`
+- `huaweicloud`: `HUAWEICLOUD_ACCESS_KEY`, `HUAWEICLOUD_SECRET_KEY`,
+  `HUAWEICLOUD_PROJECT_ID`, `HUAWEICLOUD_REGION`
+
+These optional credentials can enrich static seed data. Vultr, Linode,
+DigitalOcean, and Hetzner need no credentials.
 
 AWS output excludes Spot prices, interruption rates, and Spot savings estimates.
 
@@ -85,6 +92,9 @@ The exact relative directory depends on the provider. Use the absolute
 
 Scrape result fields:
 
+- `status`: `ok` for complete success, `error` for failures
+- `command`: command name, currently `scrape`
+- `output_dir`: absolute root directory for generated files
 - `succeeded`: providers that completed
 - `failed`: provider name and error message
 - `partial`: true when execution produced an incomplete snapshot

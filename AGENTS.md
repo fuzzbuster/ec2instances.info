@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is a Go 1.26 CLI-focused fork of `ec2instances.info`. The CLI entry points live in `main.go`, `cli.go`, `providers.go`, and `version.go`. Provider scrapers are organized by top-level provider directories such as `aws/`, `azure/`, `gcp/`, `alicloud/`, `tencentcloud/`, and `vultr/`. Shared helpers live in `utils/`; AWS-specific helpers are split between `aws/ec2/` and `aws/awsutils/`. Documentation is in `docs/`, and the reusable agent skill is in `skills/ec2instances/SKILL.md`.
+This repository is a Go 1.26 CLI-focused fork of `ec2instances.info`. The CLI entry points live in `main.go`, `cli.go`, `providers.go`, and `version.go`. Provider scrapers are organized by top-level provider directories such as `aws/`, `azure/`, `gcp/`, `alicloud/`, `tencentcloud/`, `volcengine/`, `huaweicloud/`, `vultr/`, `linode/`, `digitalocean/`, and `hetzner/`. Shared helpers live in `utils/`; AWS-specific helpers are split between `aws/ec2/` and `aws/awsutils/`. Documentation is in `docs/`, and the reusable agent skill is in `skills/ec2instances/SKILL.md`.
 
 ## Build, Test, and Development Commands
 
