@@ -25,4 +25,4 @@ jobs:
               run: |
                   test -f skills/ec2instances/SKILL.md
                   head -20 skills/ec2instances/SKILL.md | grep -q '^name: "ec2instances"$'
-                  head -20 skills/ec2instances/SKILL.md | grep -q '^description: ".\\+"$'
+                  head -20 skills/ec2instances/SKILL.md | grep -Eq '^description: ".+"$'
