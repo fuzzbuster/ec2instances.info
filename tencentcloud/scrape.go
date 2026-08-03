@@ -15,21 +15,27 @@
 package tencentcloud
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"github.com/imroc/req/v3"
 	"log"
+	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	outputFilePath = "tencentcloud/instances.json"
+	outputFilePath        = "tencentcloud/instances.json"
+	publicRegionsEndpoint = "https://workbench.cloud.tencent.com/cgi/area/queryCvmRegion"
+	publicCVMEndpoint     = "https://workbench.cloud.tencent.com/cgi/api?i=cvm/DescribeZoneInstanceConfigInfos&uin=&region=%s"
 	// CVM API endpoint (international)
 	cvmAPIEndpoint = "https://cvm.tencentcloudapi.com"
 	// Regions to scrape when using the signed API
@@ -42,7 +48,11 @@ var tencentRegions = []string{
 	"ap-tokyo", "ap-seoul", "na-siliconvalley", "na-ashburn", "eu-frankfurt",
 }
 
-var tencentHTTPClient = req.C().SetTimeout(30 * time.Second).DisableAutoDecode()
+var tencentHTTPClient = req.C().
+	SetTimeout(30 * time.Second).
+	DisableAutoDecode()
+
+var publicHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // ----- output instance struct -----
 
@@ -57,7 +67,7 @@ type CVMInstance struct {
 	GPU                int      `json:"GPU"`
 	GPUModel           string   `json:"GPU_model,omitempty"`
 	NetworkPerformance string   `json:"network_performance"`
-	// Pricing: region → os → {"ondemand": "price"}
+	// Pricing: region → os → price type → price
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	Regions []string                                `json:"regions"`
 }
@@ -144,6 +154,261 @@ var staticSeeds = []seedEntry{
 	{"SA3.MEDIUM8", 4, 8, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0, ""},
 	{"SA3.LARGE16", 8, 16, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0, ""},
 	{"SA3.XLARGE32", 16, 32, "SA3", "Standard SA3 (Amp)", []string{"arm64"}, 0, ""},
+}
+
+// ----- public purchase page API structs -----
+
+type publicRegion struct {
+	Region string       `json:"region"`
+	Zones  []publicZone `json:"zones"`
+}
+
+type publicZone struct {
+	Zone string `json:"zone"`
+}
+
+type publicRegionsResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		Response struct {
+			RegionSet []publicRegion `json:"RegionSet"`
+		} `json:"Response"`
+	} `json:"data"`
+}
+
+type publicInstancePrice struct {
+	UnitPrice               float64 `json:"UnitPrice"`
+	UnitPriceDiscount       float64 `json:"UnitPriceDiscount"`
+	OriginalPrice           float64 `json:"OriginalPrice"`
+	DiscountPrice           float64 `json:"DiscountPrice"`
+	OriginalPriceOneYear    float64 `json:"OriginalPriceOneYear"`
+	DiscountPriceOneYear    float64 `json:"DiscountPriceOneYear"`
+	OriginalPriceThreeYears float64 `json:"OriginalPriceThreeYears"`
+	DiscountPriceThreeYears float64 `json:"DiscountPriceThreeYears"`
+	OriginalPriceFiveYears  float64 `json:"OriginalPriceFiveYears"`
+	DiscountPriceFiveYears  float64 `json:"DiscountPriceFiveYears"`
+}
+
+type publicInstance struct {
+	InstanceType       string              `json:"InstanceType"`
+	InstanceFamily     string              `json:"InstanceFamily"`
+	InstanceChargeType string              `json:"InstanceChargeType"`
+	TypeName           string              `json:"TypeName"`
+	Architecture       string              `json:"Architecture"`
+	CPU                int                 `json:"Cpu"`
+	Memory             float64             `json:"Memory"`
+	GPU                int                 `json:"Gpu"`
+	GPUCount           int                 `json:"GpuCount"`
+	InstanceBandwidth  float64             `json:"InstanceBandwidth"`
+	Price              publicInstancePrice `json:"Price"`
+}
+
+type publicCVMResponse struct {
+	Data struct {
+		Response struct {
+			InstanceTypeQuotaSet []publicInstance `json:"InstanceTypeQuotaSet"`
+			Error                *struct {
+				Code    string `json:"Code"`
+				Message string `json:"Message"`
+			} `json:"Error"`
+		} `json:"Response"`
+	} `json:"data"`
+}
+
+func fetchPublicInstances() (map[string]*CVMInstance, error) {
+	regions, err := fetchPublicRegions()
+	if err != nil {
+		return nil, err
+	}
+
+	all := map[string]*CVMInstance{}
+	successfulZones := 0
+	for _, region := range regions {
+		for _, zone := range uniqueZones(region.Zones) {
+			types, err := fetchPublicZoneInstances(region.Region, zone)
+			if err != nil {
+				log.Printf("[tencentcloud] WARN public region %s zone %s: %v", region.Region, zone, err)
+				continue
+			}
+			successfulZones++
+			for _, instanceType := range types {
+				mergePublicInstance(all, region.Region, instanceType)
+			}
+			log.Printf("[tencentcloud] public region %s zone %s: %d records", region.Region, zone, len(types))
+		}
+	}
+	if successfulZones == 0 || len(all) == 0 {
+		return nil, fmt.Errorf("public API returned no instances from %d successful zones", successfulZones)
+	}
+	return all, nil
+}
+
+func fetchPublicRegions() ([]publicRegion, error) {
+	var out publicRegionsResponse
+	if err := postPublicJSON(publicRegionsEndpoint, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Code != 0 {
+		return nil, fmt.Errorf("public regions API returned code %d", out.Code)
+	}
+	if len(out.Data.Response.RegionSet) == 0 {
+		return nil, fmt.Errorf("public regions API returned no regions")
+	}
+	return out.Data.Response.RegionSet, nil
+}
+
+func fetchPublicZoneInstances(region, zone string) ([]publicInstance, error) {
+	payload := map[string]any{
+		"serviceType": "cvm",
+		"action":      "DescribeZoneInstanceConfigInfos",
+		"region":      region,
+		"data": map[string]any{
+			"Filters": []map[string]any{
+				{"Name": "instance-charge-type", "Values": []string{"PREPAID", "POSTPAID_BY_HOUR", "SPOTPAID"}},
+				{"Name": "zone", "Values": []string{zone}},
+			},
+			"Platform": "LINUX",
+			"Version":  "2017-03-12",
+		},
+		"cgiName": "api",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint := fmt.Sprintf(publicCVMEndpoint, region)
+	var out publicCVMResponse
+	if err := postPublicJSON(endpoint, body, &out); err != nil {
+		return nil, err
+	}
+	if out.Data.Response.Error != nil {
+		return nil, fmt.Errorf("API error %s: %s", out.Data.Response.Error.Code, out.Data.Response.Error.Message)
+	}
+	return out.Data.Response.InstanceTypeQuotaSet, nil
+}
+
+func postPublicJSON(endpoint string, body []byte, out any) error {
+	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
+
+	response, err := publicHTTPClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d for %s", response.StatusCode, endpoint)
+	}
+	if err := json.NewDecoder(response.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode %s: %w", endpoint, err)
+	}
+	return nil
+}
+
+func uniqueZones(zones []publicZone) []string {
+	var unique []string
+	for _, zone := range zones {
+		if zone.Zone != "" {
+			unique = utils.AppendUnique(unique, zone.Zone)
+		}
+	}
+	return unique
+}
+
+func mergePublicInstance(all map[string]*CVMInstance, region string, source publicInstance) {
+	if source.InstanceType == "" {
+		return
+	}
+	instance, exists := all[source.InstanceType]
+	if !exists {
+		gpu := source.GPUCount
+		if gpu == 0 {
+			gpu = source.GPU
+		}
+		pretty := source.TypeName
+		if pretty == "" {
+			pretty = prettyName(source.InstanceFamily)
+		}
+		instance = &CVMInstance{
+			InstanceType:       source.InstanceType,
+			InstanceFamily:     source.InstanceFamily,
+			PrettyName:         pretty,
+			VCPU:               source.CPU,
+			Memory:             source.Memory,
+			Arch:               archForPublicInstance(source.Architecture, source.InstanceFamily),
+			GPU:                gpu,
+			NetworkPerformance: formatBandwidth(source.InstanceBandwidth),
+			Pricing:            map[string]map[string]map[string]string{},
+		}
+		all[source.InstanceType] = instance
+	}
+
+	instance.Regions = utils.AppendUnique(instance.Regions, region)
+	prices := publicPrices(source)
+	if len(prices) == 0 {
+		return
+	}
+	if instance.Pricing[region] == nil {
+		instance.Pricing[region] = map[string]map[string]string{"linux": {}}
+	}
+	for priceType, price := range prices {
+		setLowestPrice(instance.Pricing[region]["linux"], priceType, price)
+	}
+}
+
+func publicPrices(instance publicInstance) map[string]float64 {
+	price := instance.Price
+	switch instance.InstanceChargeType {
+	case "POSTPAID_BY_HOUR":
+		return map[string]float64{
+			"ondemand":          price.UnitPrice,
+			"ondemand_discount": price.UnitPriceDiscount,
+		}
+	case "SPOTPAID":
+		return map[string]float64{"spot": price.UnitPriceDiscount}
+	case "PREPAID":
+		return map[string]float64{
+			"monthly":             price.OriginalPrice,
+			"monthly_discount":    price.DiscountPrice,
+			"yearly":              price.OriginalPriceOneYear,
+			"yearly_discount":     price.DiscountPriceOneYear,
+			"three_year":          price.OriginalPriceThreeYears,
+			"three_year_discount": price.DiscountPriceThreeYears,
+			"five_year":           price.OriginalPriceFiveYears,
+			"five_year_discount":  price.DiscountPriceFiveYears,
+		}
+	default:
+		return nil
+	}
+}
+
+func setLowestPrice(prices map[string]string, priceType string, value float64) {
+	if value <= 0 {
+		return
+	}
+	current, err := strconv.ParseFloat(prices[priceType], 64)
+	if err == nil && current <= value {
+		return
+	}
+	prices[priceType] = strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+func archForPublicInstance(architecture, family string) []string {
+	if strings.Contains(strings.ToUpper(architecture), "ARM") {
+		return []string{"arm64"}
+	}
+	return archForFamily(family)
+}
+
+func formatBandwidth(bandwidth float64) string {
+	if bandwidth <= 0 {
+		return ""
+	}
+	return strconv.FormatFloat(bandwidth, 'f', -1, 64) + " Gbps"
 }
 
 // ----- CVM API structs -----
@@ -363,10 +628,15 @@ func DoTencentcloudScraping() error {
 			all[k] = v
 		}
 	} else {
-		log.Println("[tencentcloud] no credentials — using static seed data only")
-		// Assign all static seeds to a representative region set
-		for _, inst := range all {
-			inst.Regions = []string{"ap-guangzhou", "ap-beijing", "ap-shanghai"}
+		log.Println("[tencentcloud] no credentials — fetching public purchase data")
+		publicInstances, err := fetchPublicInstances()
+		if err != nil {
+			log.Printf("[tencentcloud] WARN public scrape failed, using static seed data: %v", err)
+			for _, inst := range all {
+				inst.Regions = []string{"ap-guangzhou", "ap-beijing", "ap-shanghai"}
+			}
+		} else {
+			all = publicInstances
 		}
 	}
 

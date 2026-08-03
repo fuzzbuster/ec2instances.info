@@ -1,0 +1,96 @@
+package tencentcloud
+
+import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"testing"
+)
+
+func TestPostPublicJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", request.Method)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(writer, `{"code":0,"data":{"Response":{"RegionSet":[{"region":"ap-nanjing"}]}}}`)
+	}))
+	defer server.Close()
+
+	var response publicRegionsResponse
+	if err := postPublicJSON(server.URL, nil, &response); err != nil {
+		t.Fatal(err)
+	}
+	if got := response.Data.Response.RegionSet[0].Region; got != "ap-nanjing" {
+		t.Fatalf("region = %q, want ap-nanjing", got)
+	}
+}
+
+func TestUniqueZones(t *testing.T) {
+	zones := []publicZone{
+		{Zone: "ap-nanjing-1"},
+		{Zone: "ap-nanjing-1"},
+		{Zone: ""},
+		{Zone: "ap-nanjing-3"},
+	}
+
+	got := uniqueZones(zones)
+	want := []string{"ap-nanjing-1", "ap-nanjing-3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("uniqueZones() = %v, want %v", got, want)
+	}
+}
+
+func TestMergePublicInstance(t *testing.T) {
+	instances := map[string]*CVMInstance{}
+	base := publicInstance{
+		InstanceType:      "SA5.MEDIUM8",
+		InstanceFamily:    "SA5",
+		TypeName:          "Standard Arm SA5",
+		Architecture:      "ARM计算",
+		CPU:               4,
+		Memory:            8,
+		InstanceBandwidth: 3,
+	}
+
+	ondemand := base
+	ondemand.InstanceChargeType = "POSTPAID_BY_HOUR"
+	ondemand.Price.UnitPrice = 0.4
+	ondemand.Price.UnitPriceDiscount = 0.3
+	mergePublicInstance(instances, "ap-nanjing", ondemand)
+
+	lowerPrice := ondemand
+	lowerPrice.Price.UnitPrice = 0.35
+	lowerPrice.Price.UnitPriceDiscount = 0.25
+	mergePublicInstance(instances, "ap-nanjing", lowerPrice)
+
+	prepaid := base
+	prepaid.InstanceChargeType = "PREPAID"
+	prepaid.Price.OriginalPrice = 200
+	prepaid.Price.DiscountPrice = 160
+	mergePublicInstance(instances, "ap-shanghai", prepaid)
+
+	instance := instances[base.InstanceType]
+	if instance == nil {
+		t.Fatal("instance was not created")
+	}
+	if !reflect.DeepEqual(instance.Regions, []string{"ap-nanjing", "ap-shanghai"}) {
+		t.Fatalf("regions = %v", instance.Regions)
+	}
+	if !reflect.DeepEqual(instance.Arch, []string{"arm64"}) {
+		t.Fatalf("arch = %v, want arm64", instance.Arch)
+	}
+	if instance.NetworkPerformance != "3 Gbps" {
+		t.Fatalf("network performance = %q", instance.NetworkPerformance)
+	}
+	if got := instance.Pricing["ap-nanjing"]["linux"]["ondemand"]; got != "0.35" {
+		t.Fatalf("ondemand price = %q, want 0.35", got)
+	}
+	if got := instance.Pricing["ap-nanjing"]["linux"]["ondemand_discount"]; got != "0.25" {
+		t.Fatalf("discount price = %q, want 0.25", got)
+	}
+	if got := instance.Pricing["ap-shanghai"]["linux"]["monthly"]; got != "200" {
+		t.Fatalf("monthly price = %q, want 200", got)
+	}
+}
