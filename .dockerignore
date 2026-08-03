@@ -1,7 +1,0 @@
-Dockerfile
-.travis*
-.git*
-.dockerignore
-www
-next
-ec2instances/

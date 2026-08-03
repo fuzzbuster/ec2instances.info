@@ -1,4 +1,0 @@
-FROM golang:1.26-alpine
-RUN apk add --no-cache nodejs npm
-RUN npm install -g prettier@3.5.3
-WORKDIR /app
