@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"html"
 	"log"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/anaskhan96/soup"
 )
 
 const (
@@ -112,12 +112,14 @@ func DoHetznerScraping() error {
 			if !location.Active {
 				continue
 			}
-			hourly := parsePrice(location.Prices.Hourly.USD)
-			if hourly == 0 {
-				monthly := parsePrice(location.Prices.Monthly.USD)
-				if monthly > 0 {
-					hourly = monthly / 730.0
-				}
+			hourly, err := hourlyPrice(location)
+			if err != nil {
+				return fmt.Errorf(
+					"parse Hetzner price for %s in %s: %w",
+					plan.ProductKey,
+					location.Datacenter,
+					err,
+				)
 			}
 			regionID := strings.ToLower(location.Datacenter)
 			instance.Pricing[regionID] = map[string]map[string]float64{
@@ -164,38 +166,44 @@ func fetchPlans() ([]Plan, error) {
 }
 
 func parsePlans(pageHTML string, family string) []Plan {
-	rowRE := regexp.MustCompile(`(?s)<div class="cloud-matrix-table-row">(.*?product-key="[^"]+".*?)<div class="table-card">`)
-	nameRE := regexp.MustCompile(`(?s)<div class="name-cell">\s*<div class="">\s*([^<]+)`)
-	cpuRE := regexp.MustCompile(`(?s)<div class="cpu-cell">\s*<img[^>]*>\s*([0-9]+)\s*(?:<div class="arch-type-badge">\s*([^<]+)\s*</div>)?`)
-	ramRE := regexp.MustCompile(`(?s)<div class="ram-cell">.*?([0-9.]+)\s*GB`)
-	driveRE := regexp.MustCompile(`(?s)<div class="drive-cell">.*?([0-9]+)\s*GB`)
-	keyRE := regexp.MustCompile(`product-key="([^"]+)"`)
-
 	plans := []Plan{}
-	for _, match := range rowRE.FindAllStringSubmatch(pageHTML, -1) {
-		row := match[1]
-		name := submatch(row, nameRE, 1)
-		if name == "" {
+	doc := soup.HTMLParse(pageHTML)
+	if doc.Error != nil {
+		return plans
+	}
+
+	for _, row := range doc.FindAll("div", "class", "cloud-matrix-table-row") {
+		nameNode := row.Find("div", "class", "name-cell")
+		cpuNode := row.Find("div", "class", "cpu-cell")
+		ramNode := row.Find("div", "class", "ram-cell")
+		driveNode := row.Find("div", "class", "drive-cell")
+		if nameNode.Error != nil || cpuNode.Error != nil || ramNode.Error != nil || driveNode.Error != nil {
 			continue
 		}
-		cpuMatch := cpuRE.FindStringSubmatch(row)
-		if len(cpuMatch) < 2 {
+
+		name := strings.TrimSpace(nameNode.FullText())
+		vcpu := firstInt(cpuNode.FullText())
+		ram := firstFloat(ramNode.FullText())
+		storage := firstInt(driveNode.FullText())
+
+		priceNode := row.Find("ho-price-container")
+		if priceNode.Error != nil {
 			continue
 		}
-		vcpu, _ := strconv.Atoi(cpuMatch[1])
+		productKey := priceNode.Attrs()["product-key"]
+
+		archNode := row.Find("div", "class", "arch-type-badge")
 		arch := ""
-		if len(cpuMatch) > 2 {
-			arch = strings.TrimSpace(html.UnescapeString(cpuMatch[2]))
+		if archNode.Error == nil {
+			arch = strings.TrimSpace(archNode.FullText())
 		}
-		ram, _ := strconv.ParseFloat(submatch(row, ramRE, 1), 64)
-		storage, _ := strconv.Atoi(submatch(row, driveRE, 1))
-		productKey := submatch(row, keyRE, 1)
-		if vcpu == 0 || ram == 0 || storage == 0 || productKey == "" {
+
+		if name == "" || vcpu == 0 || ram == 0 || storage == 0 || productKey == "" {
 			continue
 		}
 
 		plans = append(plans, Plan{
-			Name:       strings.TrimSpace(html.UnescapeString(name)),
+			Name:       name,
 			Family:     family,
 			VCPU:       vcpu,
 			Memory:     ram,
@@ -221,17 +229,73 @@ func fetchPrices(productKey string) ([]PriceLocation, error) {
 	return response.Locations, nil
 }
 
-func submatch(value string, re *regexp.Regexp, index int) string {
-	match := re.FindStringSubmatch(value)
-	if len(match) <= index {
-		return ""
+func firstInt(value string) int {
+	for start := 0; start < len(value); start++ {
+		if value[start] < '0' || value[start] > '9' {
+			continue
+		}
+		end := start + 1
+		for end < len(value) && value[end] >= '0' && value[end] <= '9' {
+			end++
+		}
+		result, _ := strconv.Atoi(value[start:end])
+		return result
 	}
-	return strings.TrimSpace(match[index])
+	return 0
 }
 
-func parsePrice(value string) float64 {
-	price, _ := strconv.ParseFloat(value, 64)
-	return price
+func firstFloat(value string) float64 {
+	for start := 0; start < len(value); start++ {
+		if value[start] < '0' || value[start] > '9' {
+			continue
+		}
+		end := start + 1
+		seenDot := false
+		for end < len(value) {
+			if value[end] >= '0' && value[end] <= '9' {
+				end++
+				continue
+			}
+			if value[end] == '.' && !seenDot {
+				seenDot = true
+				end++
+				continue
+			}
+			break
+		}
+		result, _ := strconv.ParseFloat(value[start:end], 64)
+		return result
+	}
+	return 0
+}
+
+func hourlyPrice(location PriceLocation) (float64, error) {
+	hourly, hourlyErr := parsePrice(location.Prices.Hourly.USD)
+	if hourlyErr == nil && hourly > 0 {
+		return hourly, nil
+	}
+
+	monthly, monthlyErr := parsePrice(location.Prices.Monthly.USD)
+	if monthlyErr != nil {
+		return 0, fmt.Errorf(
+			"invalid hourly price %q and monthly price %q: %w",
+			location.Prices.Hourly.USD,
+			location.Prices.Monthly.USD,
+			monthlyErr,
+		)
+	}
+	if monthly <= 0 {
+		return 0, fmt.Errorf(
+			"hourly and monthly prices must be positive: hourly=%q monthly=%q",
+			location.Prices.Hourly.USD,
+			location.Prices.Monthly.USD,
+		)
+	}
+	return monthly / 730.0, nil
+}
+
+func parsePrice(value string) (float64, error) {
+	return strconv.ParseFloat(strings.TrimSpace(value), 64)
 }
 
 func architecture(value string) []string {

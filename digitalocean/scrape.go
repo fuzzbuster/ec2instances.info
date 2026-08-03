@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/anaskhan96/soup"
 )
 
 const (
@@ -118,12 +120,31 @@ func fetchPlans() ([]Plan, error) {
 		return nil, fmt.Errorf("fetch DigitalOcean pricing page: %w", err)
 	}
 
-	unescaped := strings.ReplaceAll(string(body), `\"`, `"`)
-	matches := regexp.MustCompile(`\{"memory":[0-9.]+,"cpus":[0-9]+,"disk":\{[^}]*"boot":[0-9]+[^}]*\},"network":\{"throughput":[0-9.]+\}(?:,"api":(?:true|false))?,"price":\{"transferQuota":[0-9]+,"hourly":[0-9.]+,"monthly":[0-9.]+\},"slug":"[^"]+"\}`).FindAllString(unescaped, -1)
+	return parsePlansFromPricingHTML(string(body))
+}
+
+func parsePlansFromPricingHTML(pageHTML string) ([]Plan, error) {
+	matches := planJSONObjectsFromScripts(pageHTML)
 
 	seen := map[string]struct{}{}
 	plans := make([]Plan, 0, len(matches))
 	for _, raw := range matches {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+			continue
+		}
+		requiredFields := []string{"memory", "cpus", "disk", "network", "price", "slug"}
+		isPlan := true
+		for _, field := range requiredFields {
+			if _, ok := fields[field]; !ok {
+				isPlan = false
+				break
+			}
+		}
+		if !isPlan {
+			continue
+		}
+
 		var plan Plan
 		if err := json.Unmarshal([]byte(raw), &plan); err != nil {
 			return nil, fmt.Errorf("parse DigitalOcean plan: %w", err)
@@ -138,6 +159,67 @@ func fetchPlans() ([]Plan, error) {
 		return nil, fmt.Errorf("no DigitalOcean droplet plans found")
 	}
 	return plans, nil
+}
+
+func planJSONObjectsFromScripts(pageHTML string) []string {
+	doc := soup.HTMLParse(pageHTML)
+	if doc.Error == nil {
+		matches := []string{}
+		for _, script := range doc.FindAll("script") {
+			matches = append(matches, jsonObjectCandidates(script.FullText())...)
+		}
+		if len(matches) > 0 {
+			return matches
+		}
+	}
+
+	return jsonObjectCandidates(pageHTML)
+}
+
+func jsonObjectCandidates(value string) []string {
+	value = strings.ReplaceAll(value, `\"`, `"`)
+
+	var candidates []string
+	var starts []int
+	inString := false
+	escaped := false
+
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if len(starts) == 0 {
+			if char == '{' {
+				starts = append(starts, index)
+				inString = false
+				escaped = false
+			}
+			continue
+		}
+
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case char == '\\':
+				escaped = true
+			case char == '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch char {
+		case '"':
+			inString = true
+		case '{':
+			starts = append(starts, index)
+		case '}':
+			start := starts[len(starts)-1]
+			candidates = append(candidates, value[start:index+1])
+			starts = starts[:len(starts)-1]
+		}
+	}
+
+	return candidates
 }
 
 func fetchRegions() (map[string]string, error) {
