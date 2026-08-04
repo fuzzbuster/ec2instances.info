@@ -14,6 +14,13 @@ I/O mode. The scraper builds regional On-Demand prices from these keys. In
 anonymous mode, vCPU and memory are derived from the documented ECS family and
 size naming scheme.
 
+## Availability
+
+Regional price entries produce `availability` with `status: "offered"` and
+`evidence: "pricing"`. Hourly periods map to `ondemand`; monthly or yearly
+periods map to `prepaid`. The CDN does not expose zone inventory or current
+sell-out status.
+
 ## Optional credentials
 
 `ALICLOUD_ACCESS_KEY` and `ALICLOUD_SECRET_KEY` enable the signed

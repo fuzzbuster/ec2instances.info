@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/aws/awsutils"
 	"github.com/fuzzbuster/ec2instances.info/aws/ec2/extras"
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
 type VPC struct {
@@ -81,6 +82,7 @@ type EC2Instance struct {
 	GPUMemory                int                        `json:"GPU_memory"`
 	PlacementGroupSupport    bool                       `json:"placement_group_support"`
 	AvailabilityZones        map[string][]string        `json:"availability_zones"`
+	Availability             utils.Availability         `json:"availability,omitempty"`
 	Storage                  *Storage                   `json:"storage"`
 	IPV6Support              bool                       `json:"ipv6_support"`
 	CoremarkIterationsSecond *float64                   `json:"coremark_iterations_second,omitempty"`

@@ -26,15 +26,16 @@ const AZURE_OS_URL = "https://azure.microsoft.com/api/v3/pricing/virtual-machine
 // AzureInstance is the instance data for a specific instance type in a specific region.
 type AzureInstance struct {
 	// This is all got from the specifications and pricing API's.
-	PrettyName string                               `json:"pretty_name"`
-	Family     string                               `json:"family"`
-	Category   string                               `json:"category"`
-	Vcpu       float64                              `json:"vcpu"`
-	Memory     float64                              `json:"memory"`
-	Size       float64                              `json:"size"`
-	GPU        any                                  `json:"GPU"`
-	Pricing    map[string]map[string]map[string]any `json:"pricing"`
-	Regions    map[string]string                    `json:"regions"`
+	PrettyName   string                               `json:"pretty_name"`
+	Family       string                               `json:"family"`
+	Category     string                               `json:"category"`
+	Vcpu         float64                              `json:"vcpu"`
+	Memory       float64                              `json:"memory"`
+	Size         float64                              `json:"size"`
+	GPU          any                                  `json:"GPU"`
+	Pricing      map[string]map[string]map[string]any `json:"pricing"`
+	Regions      map[string]string                    `json:"regions"`
+	Availability utils.Availability                   `json:"availability,omitempty"`
 
 	// Everything from the compute API.
 	AvailabilityZones map[string]any `json:"availability_zones"`
@@ -346,6 +347,7 @@ func processAzureApi(regionsAndOsData *AzureRootData, specsApiResponse *utils.Sl
 			continue
 		}
 		instance.Pricing = pricing
+		instance.Availability = availabilityFromAzurePricing(pricing)
 		regions := make(map[string]string)
 		for region := range pricing {
 			regions[region] = regionMap[region]
@@ -354,6 +356,37 @@ func processAzureApi(regionsAndOsData *AzureRootData, specsApiResponse *utils.Sl
 	}
 
 	return instances, nil
+}
+
+func availabilityFromAzurePricing(pricing map[string]map[string]map[string]any) utils.Availability {
+	availability := utils.Availability{}
+	for region, operatingSystems := range pricing {
+		options := map[string]utils.AvailabilityStatus{}
+		for _, prices := range operatingSystems {
+			for priceType, value := range prices {
+				switch priceType {
+				case "ondemand", "basic":
+					options["ondemand"] = utils.AvailabilityOffered
+				case "spot_min", "basic-spot":
+					options["spot"] = utils.AvailabilityOffered
+				case "lowpriority":
+					options["lowpriority"] = utils.AvailabilityOffered
+				case "reserved":
+					if reserved, ok := value.(map[string]any); ok && len(reserved) > 0 {
+						options["reserved"] = utils.AvailabilityOffered
+					}
+				}
+			}
+		}
+		if len(options) > 0 {
+			availability[region] = utils.RegionAvailability{
+				Status:          utils.AvailabilityOffered,
+				Evidence:        utils.AvailabilityPricing,
+				PurchaseOptions: options,
+			}
+		}
+	}
+	return availability
 }
 
 type AzureSpecsApiIteratorItemCapability struct {

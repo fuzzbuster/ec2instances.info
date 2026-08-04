@@ -3,6 +3,8 @@ package hetzner
 import (
 	"math"
 	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
 func TestParsePlansFromCloudMatrixRows(t *testing.T) {
@@ -87,6 +89,15 @@ func TestHourlyPriceRejectsInvalidPrices(t *testing.T) {
 
 	if _, err := hourlyPrice(location); err == nil {
 		t.Fatal("expected invalid prices to return an error")
+	}
+}
+
+func TestHetznerRegionAvailability(t *testing.T) {
+	availability := hetznerRegionAvailability()
+	if availability.Status != utils.AvailabilityOffered ||
+		availability.Evidence != utils.AvailabilityPricing ||
+		availability.PurchaseOptions["ondemand"] != utils.AvailabilityOffered {
+		t.Fatalf("availability = %+v", availability)
 	}
 }
 

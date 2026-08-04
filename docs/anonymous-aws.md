@@ -13,6 +13,13 @@ The scraper parses vCPU, memory, processor, architecture, cores and accelerator
 fields from the Markdown tables, then joins prices by instance type and region.
 It does not download the legacy multi-hundred-megabyte Bulk Offer catalog.
 
+## Availability
+
+An instance with a public Linux On-Demand price receives regional
+`availability` with `status: "offered"`, `evidence: "pricing"` and the
+`ondemand` purchase option. This proves that AWS publishes a regional price; it
+does not report current capacity or Availability Zone inventory.
+
 ## Optional credentials
 
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` enable

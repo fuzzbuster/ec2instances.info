@@ -15,6 +15,10 @@ Anonymous requests to the required endpoints return authorization failures
 (observed as HTTP 403). Public product pages do not expose an equivalent,
 structured regional specification and pricing dataset.
 
+Because there is no anonymous dataset, GCP does not participate in the
+normalized anonymous `availability` output described in
+[instance availability](availability.md).
+
 ## Required configuration
 
 - `GCP_PROJECT_ID`

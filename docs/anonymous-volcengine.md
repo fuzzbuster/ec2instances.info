@@ -14,6 +14,13 @@ The template is walked recursively to collect instance type, vCPU, memory,
 processor, local storage, region and availability zones. The price table adds
 hourly, monthly and yearly Linux prices.
 
+## Availability
+
+Template regions and `AvailableZone` values produce `availability` with
+`status: "available"` and `evidence: "catalog"`. Hourly/postpaid templates map
+to `ondemand`; monthly/prepaid templates map to `prepaid`. These values describe
+calculator catalog coverage and do not guarantee realtime capacity.
+
 ## Optional credentials
 
 `VOLCENGINE_ACCESS_KEY` and `VOLCENGINE_SECRET_KEY` enable the signed official
@@ -25,4 +32,4 @@ anonymous pricing and availability fields.
 The anonymous pricing endpoint and template code are website implementation
 details rather than a versioned public contract. If anonymous collection fails,
 the scraper uses embedded seed specifications. The seed set has reduced region
-and pricing coverage.
+and pricing coverage and does not emit `availability`.

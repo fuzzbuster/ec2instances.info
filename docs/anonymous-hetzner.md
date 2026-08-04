@@ -15,6 +15,13 @@ architecture and `product-key`. It then queries active price locations and
 emits per-datacenter hourly USD prices. Monthly price divided by 730 is used
 only when hourly pricing is unavailable.
 
+## Availability
+
+Active price locations with a valid price produce `availability` with
+`status: "offered"`, `evidence: "pricing"` and the `ondemand` purchase option.
+The `active` flag describes a current price location and does not prove
+realtime server capacity.
+
 ## Credentials and limits
 
 No Hetzner token is read or required. The current scope is cloud VM plans; it

@@ -1,6 +1,10 @@
 package digitalocean
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
+)
 
 func TestParsePlansFromPricingHTMLScriptPayload(t *testing.T) {
 	pageHTML := `<html><body><script>
@@ -79,6 +83,29 @@ func TestInstanceFamily(t *testing.T) {
 		if got := instanceFamily(slug); got != want {
 			t.Errorf("instanceFamily(%q) = %q, want %q", slug, got, want)
 		}
+	}
+}
+
+func TestParseDropletAvailability(t *testing.T) {
+	markdown := `| Droplet Plans | NYC1 | ATL1 | FUT1 |
+|---|---|---|---|
+| Basic | ✓ | ◐ | |`
+	got, err := parseDropletAvailability(markdown, map[string]string{
+		"nyc1": "New York 1",
+		"atl1": "Atlanta 1",
+		"fut1": "Future 1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["Basic"]["nyc1"] != utils.AvailabilityAvailable {
+		t.Fatalf("full availability = %q", got["Basic"]["nyc1"])
+	}
+	if got["Basic"]["atl1"] != utils.AvailabilityLimited {
+		t.Fatalf("limited availability = %q", got["Basic"]["atl1"])
+	}
+	if _, ok := got["Basic"]["fut1"]; ok {
+		t.Fatalf("future region was marked available: %v", got["Basic"])
 	}
 }
 

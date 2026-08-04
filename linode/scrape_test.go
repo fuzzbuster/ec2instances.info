@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
 func TestFetchPages(t *testing.T) {
@@ -48,6 +50,15 @@ func TestRegionSupportsType(t *testing.T) {
 		if regionSupportsType(standardOnly, Type{Class: class}) {
 			t.Errorf("standard region unexpectedly supports class %q", class)
 		}
+	}
+}
+
+func TestLinodeRegionAvailability(t *testing.T) {
+	availability := linodeRegionAvailability()
+	if availability.Status != utils.AvailabilityAvailable ||
+		availability.Evidence != utils.AvailabilityCatalog ||
+		availability.PurchaseOptions["ondemand"] != utils.AvailabilityAvailable {
+		t.Fatalf("availability = %+v", availability)
 	}
 }
 

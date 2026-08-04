@@ -78,6 +78,7 @@ type VPSInstance struct {
 	Transfer           int                                      `json:"transfer"`
 	Pricing            map[string]map[string]map[string]float64 `json:"pricing"`
 	Regions            map[string]string                        `json:"regions"`
+	Availability       utils.Availability                       `json:"availability,omitempty"`
 }
 
 func DoHetznerScraping() error {
@@ -102,6 +103,7 @@ func DoHetznerScraping() error {
 			Transfer:           20000,
 			Pricing:            map[string]map[string]map[string]float64{},
 			Regions:            map[string]string{},
+			Availability:       utils.Availability{},
 		}
 
 		locations, err := fetchPrices(plan.ProductKey)
@@ -126,6 +128,7 @@ func DoHetznerScraping() error {
 				"linux": {"ondemand": hourly},
 			}
 			instance.Regions[regionID] = fmt.Sprintf("%s, %s", location.Datacenter, strings.ToUpper(location.CountryCode))
+			instance.Availability[regionID] = hetznerRegionAvailability()
 		}
 
 		instances = append(instances, instance)
@@ -227,6 +230,16 @@ func fetchPrices(productKey string) ([]PriceLocation, error) {
 		return nil, fmt.Errorf("parse Hetzner prices for %s: %w", productKey, err)
 	}
 	return response.Locations, nil
+}
+
+func hetznerRegionAvailability() utils.RegionAvailability {
+	return utils.RegionAvailability{
+		Status:   utils.AvailabilityOffered,
+		Evidence: utils.AvailabilityPricing,
+		PurchaseOptions: map[string]utils.AvailabilityStatus{
+			"ondemand": utils.AvailabilityOffered,
+		},
+	}
 }
 
 func firstInt(value string) int {

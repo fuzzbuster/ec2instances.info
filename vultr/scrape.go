@@ -32,23 +32,25 @@ type Meta struct {
 }
 
 type Plan struct {
-	ID           string   `json:"id"`
-	VCPUCount    int      `json:"vcpu_count"`
-	RAM          int      `json:"ram"`
-	Disk         int      `json:"disk"`
-	DiskType     string   `json:"disk_type"`
-	DiskCount    int      `json:"disk_count"`
-	Bandwidth    int      `json:"bandwidth"`
-	MonthlyCost  float64  `json:"monthly_cost"`
-	HourlyCost   float64  `json:"hourly_cost"`
-	Type         string   `json:"type"`
-	Locations    []string `json:"locations"`
-	CPUVendor    string   `json:"cpu_vendor"`
-	StorageType  string   `json:"storage_type"`
-	GPUVRAM      int      `json:"gpu_vram"`
-	GPUType      string   `json:"gpu_type"`
-	GPUBrand     string   `json:"gpu_brand"`
-	LocationCost map[string]struct {
+	ID                string   `json:"id"`
+	VCPUCount         int      `json:"vcpu_count"`
+	RAM               int      `json:"ram"`
+	Disk              int      `json:"disk"`
+	DiskType          string   `json:"disk_type"`
+	DiskCount         int      `json:"disk_count"`
+	Bandwidth         int      `json:"bandwidth"`
+	MonthlyCost       float64  `json:"monthly_cost"`
+	HourlyCost        float64  `json:"hourly_cost"`
+	Type              string   `json:"type"`
+	Locations         []string `json:"locations"`
+	CPUVendor         string   `json:"cpu_vendor"`
+	StorageType       string   `json:"storage_type"`
+	GPUVRAM           int      `json:"gpu_vram"`
+	GPUType           string   `json:"gpu_type"`
+	GPUBrand          string   `json:"gpu_brand"`
+	DeployOnDemand    bool     `json:"deploy_ondemand"`
+	DeployPreemptible bool     `json:"deploy_preemptible"`
+	LocationCost      map[string]struct {
 		MonthlyCost float64 `json:"monthly_cost"`
 		HourlyCost  float64 `json:"hourly_cost"`
 	} `json:"location_cost"`
@@ -83,6 +85,7 @@ type VPSInstance struct {
 	Transfer           int                                      `json:"transfer"`
 	Pricing            map[string]map[string]map[string]float64 `json:"pricing"`
 	Regions            map[string]string                        `json:"regions"`
+	Availability       utils.Availability                       `json:"availability,omitempty"`
 }
 
 func DoVultrScraping() error {
@@ -116,6 +119,7 @@ func DoVultrScraping() error {
 			Transfer:           plan.Bandwidth,
 			Pricing:            map[string]map[string]map[string]float64{},
 			Regions:            map[string]string{},
+			Availability:       utils.Availability{},
 		}
 
 		for _, region := range plan.Locations {
@@ -134,6 +138,13 @@ func DoVultrScraping() error {
 				"linux": {"ondemand": hourlyCost},
 			}
 			instance.Regions[region] = regionName(region, regions)
+			if options := vultrPurchaseOptions(plan); len(options) > 0 {
+				instance.Availability[region] = utils.RegionAvailability{
+					Status:          utils.AvailabilityAvailable,
+					Evidence:        utils.AvailabilityCatalog,
+					PurchaseOptions: options,
+				}
+			}
 		}
 
 		instances = append(instances, instance)
@@ -203,6 +214,17 @@ func regionName(id string, regions map[string]Region) string {
 		return id
 	}
 	return fmt.Sprintf("%s, %s", region.City, region.Country)
+}
+
+func vultrPurchaseOptions(plan Plan) map[string]utils.AvailabilityStatus {
+	options := map[string]utils.AvailabilityStatus{}
+	if plan.DeployOnDemand {
+		options["ondemand"] = utils.AvailabilityAvailable
+	}
+	if plan.DeployPreemptible {
+		options["preemptible"] = utils.AvailabilityAvailable
+	}
+	return options
 }
 
 func networkPerformance(bandwidth int) string {

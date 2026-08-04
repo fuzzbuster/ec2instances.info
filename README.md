@@ -87,6 +87,12 @@ regional pricing do not require credentials.
 See [Azure setup](docs/setting-up-azure.md) for optional SKU enrichment and
 [GCP setup](docs/setting-up-gcp.md) for credential creation.
 
+Anonymous datasets expose normalized availability evidence where their public
+sources allow it. See [instance availability](docs/availability.md) for the
+`availability` schema and the distinction between realtime, catalog and pricing
+evidence. Existing `regions`, `pricing` and `availability_zones` fields remain
+unchanged.
+
 Provider-specific anonymous data source documentation:
 
 - [AWS](docs/anonymous-aws.md)

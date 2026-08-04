@@ -19,6 +19,11 @@ No token is read or required. Regions must be active and advertise the
 `Linodes` capability. GPU, Premium and NETINT accelerated types are restricted
 to regions that advertise their respective capability.
 
+Matching regions produce `availability` with `status: "available"`,
+`evidence: "catalog"` and the `ondemand` purchase option. Region health and
+capabilities describe catalog support; they do not report per-plan realtime
+capacity.
+
 ## Failure behavior
 
 Request, pagination or JSON decoding failures fail the scrape. There is no

@@ -13,6 +13,14 @@ Both endpoints return JSON. The scraper follows the opaque cursor in
 memory, disk, transfer, GPU metadata and per-region hourly pricing. A monthly
 price is divided by 730 only when an hourly price is absent.
 
+## Availability
+
+Each plan location produces `availability` with `status: "available"` and
+`evidence: "catalog"`. The public `deploy_ondemand` and
+`deploy_preemptible` flags map to the `ondemand` and `preemptible` purchase
+options. This is public deployment catalog data, not a realtime capacity
+guarantee.
+
 ## Credentials and filtering
 
 No Vultr API key is read or required. Plans without locations are excluded

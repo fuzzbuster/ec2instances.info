@@ -81,6 +81,7 @@ type VPSInstance struct {
 	Transfer           int                                      `json:"transfer"`
 	Pricing            map[string]map[string]map[string]float64 `json:"pricing"`
 	Regions            map[string]string                        `json:"regions"`
+	Availability       utils.Availability                       `json:"availability,omitempty"`
 }
 
 func DoLinodeScraping() error {
@@ -111,6 +112,7 @@ func DoLinodeScraping() error {
 			Transfer:           instanceType.Transfer,
 			Pricing:            map[string]map[string]map[string]float64{},
 			Regions:            map[string]string{},
+			Availability:       utils.Availability{},
 		}
 
 		regionPrices := map[string]float64{}
@@ -139,6 +141,7 @@ func DoLinodeScraping() error {
 				"linux": {"ondemand": hourly},
 			}
 			instance.Regions[regionID] = region.Label
+			instance.Availability[regionID] = linodeRegionAvailability()
 		}
 
 		instances = append(instances, instance)
@@ -204,6 +207,16 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func linodeRegionAvailability() utils.RegionAvailability {
+	return utils.RegionAvailability{
+		Status:   utils.AvailabilityAvailable,
+		Evidence: utils.AvailabilityCatalog,
+		PurchaseOptions: map[string]utils.AvailabilityStatus{
+			"ondemand": utils.AvailabilityAvailable,
+		},
+	}
 }
 
 func regionSupportsType(region Region, instanceType Type) bool {

@@ -1,6 +1,10 @@
 package huaweicloud
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
+)
 
 func TestMergePortalVM(t *testing.T) {
 	oneYear := 1
@@ -17,6 +21,7 @@ func TestMergePortalVM(t *testing.T) {
 			{BillingMode: "ONDEMAND", Amount: 4.25},
 			{BillingMode: "MONTHLY", PeriodNum: &oneYear, Amount: 2040},
 			{BillingMode: "YEARLY", PeriodNum: &oneYear, Amount: 20400},
+			{BillingMode: "RI", PeriodNum: &oneYear, Amount: 18000},
 		},
 	}
 
@@ -42,6 +47,31 @@ func TestMergePortalVM(t *testing.T) {
 	prices := instance.Pricing["cn-north-4"]["linux"]
 	if prices["ondemand"] != "4.25" || prices["monthly"] != "2040" || prices["yearly_1"] != "20400" {
 		t.Fatalf("unexpected prices %v", prices)
+	}
+	availability := instance.Availability["cn-north-4"]
+	if availability.Status != utils.AvailabilityOffered ||
+		availability.Evidence != utils.AvailabilityPricing {
+		t.Fatalf("unexpected availability: %+v", availability)
+	}
+	for _, option := range []string{"ondemand", "prepaid", "reserved"} {
+		if availability.PurchaseOptions[option] != utils.AvailabilityOffered {
+			t.Errorf("purchase option %q = %q", option, availability.PurchaseOptions[option])
+		}
+	}
+}
+
+func TestFindPortalRegionsInNestedCategory(t *testing.T) {
+	var ecs portalMenuItem
+	ecs.URLPath = "ecs"
+	ecs.RegionOnline.RegionList = []string{"cn-north-4", "cn-east-3"}
+	items := []portalMenuItem{{SubCategoryLists: []portalMenuItem{ecs}}}
+
+	regions := findPortalRegions(items, "ecs")
+	if len(regions) != 2 || regions[0] != "cn-north-4" || regions[1] != "cn-east-3" {
+		t.Fatalf("regions = %v", regions)
+	}
+	if regions := findPortalRegions(items, "missing"); regions != nil {
+		t.Fatalf("missing category regions = %v", regions)
 	}
 }
 

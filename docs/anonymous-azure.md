@@ -14,6 +14,14 @@ responses provide VM names, cores, memory, disk size and regional pricing.
 Offer keys are split at the first and last dash so constrained-vCPU names such
 as `e16-4as-v4` remain intact.
 
+## Availability
+
+Published regional prices produce `availability` with `status: "offered"` and
+`evidence: "pricing"`. Purchase options are derived from the available price
+keys and may include `ondemand`, `spot`, `lowpriority` and `reserved`. Public
+pricing does not prove subscription eligibility, deployment success or current
+capacity.
+
 ## Optional credentials
 
 When all four variables are set, the scraper also reads Compute SKU

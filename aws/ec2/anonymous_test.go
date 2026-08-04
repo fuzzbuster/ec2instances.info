@@ -1,6 +1,10 @@
 package ec2
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
+)
 
 func TestParseSpecificationDocument(t *testing.T) {
 	document := []byte(`
@@ -59,6 +63,12 @@ func TestApplyCompactPricing(t *testing.T) {
 	}
 	if instances["m7g.large"].Regions["US East (N. Virginia)"] != "US East (N. Virginia)" {
 		t.Fatalf("unexpected regions: %v", instances["m7g.large"].Regions)
+	}
+	availability := instances["m7g.large"].Availability["US East (N. Virginia)"]
+	if availability.Status != utils.AvailabilityOffered ||
+		availability.Evidence != utils.AvailabilityPricing ||
+		availability.PurchaseOptions["ondemand"] != utils.AvailabilityOffered {
+		t.Fatalf("unexpected availability: %+v", availability)
 	}
 }
 

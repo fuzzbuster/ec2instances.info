@@ -78,7 +78,8 @@ type AliInstance struct {
 	// Pricing maps region → os → {"ondemand": "0.123"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	// Regions lists all regions where the instance type has been observed.
-	Regions []string `json:"regions"`
+	Regions      []string           `json:"regions"`
+	Availability utils.Availability `json:"availability,omitempty"`
 }
 
 // ----- instance naming heuristic -----
@@ -510,6 +511,25 @@ func buildInstances(intl, cn pricingFile, apiSpecs map[string]*AliInstance) map[
 				inst.Pricing[region][osLabel]["ondemand"] = entry.Hours[0].Price
 			}
 			inst.Regions = utils.AppendUnique(inst.Regions, region)
+			if len(entry.Hours) == 0 && len(entry.Months) == 0 && len(entry.Years) == 0 {
+				continue
+			}
+			if inst.Availability == nil {
+				inst.Availability = utils.Availability{}
+			}
+			regionAvailability := inst.Availability[region]
+			regionAvailability.Status = utils.AvailabilityOffered
+			regionAvailability.Evidence = utils.AvailabilityPricing
+			if regionAvailability.PurchaseOptions == nil {
+				regionAvailability.PurchaseOptions = map[string]utils.AvailabilityStatus{}
+			}
+			if len(entry.Hours) > 0 {
+				regionAvailability.PurchaseOptions["ondemand"] = utils.AvailabilityOffered
+			}
+			if len(entry.Months) > 0 || len(entry.Years) > 0 {
+				regionAvailability.PurchaseOptions["prepaid"] = utils.AvailabilityOffered
+			}
+			inst.Availability[region] = regionAvailability
 		}
 	}
 

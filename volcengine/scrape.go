@@ -67,6 +67,7 @@ type VEInstance struct {
 	PhysicalProcessor string              `json:"physical_processor,omitempty"`
 	LocalStorage      string              `json:"local_storage,omitempty"`
 	AvailabilityZones map[string][]string `json:"availability_zones,omitempty"`
+	Availability      utils.Availability  `json:"availability,omitempty"`
 	// Pricing: region → os → {"ondemand": "price"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	Regions []string                                `json:"regions"`
@@ -288,6 +289,7 @@ func mergeAnonymousSpec(all map[string]*VEInstance, object map[string]any) {
 			Arch:              []string{"x86_64"},
 			Pricing:           map[string]map[string]map[string]string{},
 			AvailabilityZones: map[string][]string{},
+			Availability:      utils.Availability{},
 		}
 		all[instanceType] = instance
 	}
@@ -314,9 +316,50 @@ func mergeAnonymousSpec(all map[string]*VEInstance, object map[string]any) {
 	region := stringValue(object["Region"])
 	if region != "" {
 		instance.Regions = utils.AppendUnique(instance.Regions, region)
-		for _, zone := range decodeAnonymousZones(stringValue(object["AvailableZone"])) {
+		zones := decodeAnonymousZones(stringValue(object["AvailableZone"]))
+		for _, zone := range zones {
 			instance.AvailabilityZones[region] = utils.AppendUnique(instance.AvailabilityZones[region], zone)
 		}
+		mergeAnonymousAvailability(instance, region, zones, anonymousPurchaseOption(object))
+	}
+}
+
+func mergeAnonymousAvailability(instance *VEInstance, region string, zones []string, option string) {
+	if len(zones) == 0 || option == "" {
+		return
+	}
+	regionAvailability := instance.Availability[region]
+	regionAvailability.Status = utils.AvailabilityAvailable
+	regionAvailability.Evidence = utils.AvailabilityCatalog
+	if regionAvailability.PurchaseOptions == nil {
+		regionAvailability.PurchaseOptions = map[string]utils.AvailabilityStatus{}
+	}
+	if regionAvailability.Zones == nil {
+		regionAvailability.Zones = map[string]utils.ZoneAvailability{}
+	}
+	regionAvailability.PurchaseOptions[option] = utils.AvailabilityAvailable
+	for _, zone := range zones {
+		zoneAvailability := regionAvailability.Zones[zone]
+		zoneAvailability.Status = utils.AvailabilityAvailable
+		if zoneAvailability.PurchaseOptions == nil {
+			zoneAvailability.PurchaseOptions = map[string]utils.AvailabilityStatus{}
+		}
+		zoneAvailability.PurchaseOptions[option] = utils.AvailabilityAvailable
+		regionAvailability.Zones[zone] = zoneAvailability
+	}
+	instance.Availability[region] = regionAvailability
+}
+
+func anonymousPurchaseOption(object map[string]any) string {
+	switch {
+	case stringValue(object["BillingMethod"]) == "configuration_hourly",
+		stringValue(object["PayType"]) == "post":
+		return "ondemand"
+	case stringValue(object["BillingMethod"]) == "monthly",
+		stringValue(object["PayType"]) == "pre":
+		return "prepaid"
+	default:
+		return ""
 	}
 }
 
@@ -633,6 +676,7 @@ func DoVolcengineScraping() error {
 			if existing, ok := all[k]; ok {
 				v.Pricing = existing.Pricing
 				v.AvailabilityZones = existing.AvailabilityZones
+				v.Availability = existing.Availability
 				v.PhysicalProcessor = existing.PhysicalProcessor
 				v.LocalStorage = existing.LocalStorage
 				for _, region := range existing.Regions {

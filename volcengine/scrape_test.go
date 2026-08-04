@@ -3,6 +3,8 @@ package volcengine
 import (
 	"reflect"
 	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
 func TestMergeAnonymousSpecAndPrice(t *testing.T) {
@@ -12,6 +14,8 @@ func TestMergeAnonymousSpecAndPrice(t *testing.T) {
 		"ConfigurationCode": "ecs.g3i.large.month",
 		"Region":            "cn-beijing",
 		"AvailableZone":     `[{"ZoneCode":"cn-beijing-a"},{"ZoneCode":"cn-beijing-b"}]`,
+		"BillingMethod":     "monthly",
+		"PayType":           "pre",
 		"AbilityAttrs": []any{
 			map[string]any{"Ability": "vcpu", "Value": "2核"},
 			map[string]any{"Ability": "memory", "Value": "8GiB"},
@@ -19,6 +23,10 @@ func TestMergeAnonymousSpecAndPrice(t *testing.T) {
 			map[string]any{"Ability": "ssd", "Value": "3.84TB*1 SSD"},
 		},
 	}
+	mergeAnonymousSpec(instances, spec)
+	spec["ConfigurationCode"] = "ecs.g3i.large"
+	spec["BillingMethod"] = "configuration_hourly"
+	spec["PayType"] = "post"
 	mergeAnonymousSpec(instances, spec)
 
 	price := map[string]any{
@@ -44,6 +52,18 @@ func TestMergeAnonymousSpecAndPrice(t *testing.T) {
 	}
 	if len(instance.AvailabilityZones["cn-beijing"]) != 2 {
 		t.Fatalf("unexpected availability zones: %v", instance.AvailabilityZones)
+	}
+	availability := instance.Availability["cn-beijing"]
+	if availability.Status != utils.AvailabilityAvailable ||
+		availability.Evidence != utils.AvailabilityCatalog ||
+		availability.PurchaseOptions["ondemand"] != utils.AvailabilityAvailable ||
+		availability.PurchaseOptions["prepaid"] != utils.AvailabilityAvailable {
+		t.Fatalf("unexpected availability: %+v", availability)
+	}
+	for _, zone := range []string{"cn-beijing-a", "cn-beijing-b"} {
+		if len(availability.Zones[zone].PurchaseOptions) != 2 {
+			t.Fatalf("unexpected zone availability for %s: %+v", zone, availability.Zones[zone])
+		}
 	}
 	prices := instance.Pricing["cn-beijing"]["linux"]
 	if prices["monthly"] != "253.38" || prices["yearly_1"] != "1915.55" {

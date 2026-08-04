@@ -58,15 +58,16 @@ var huaweiHTTPClient = req.C().
 
 // HWInstance represents a Huawei Cloud ECS flavor.
 type HWInstance struct {
-	InstanceType   string   `json:"instance_type"`
-	InstanceFamily string   `json:"instance_family"`
-	PrettyName     string   `json:"pretty_name"`
-	VCPU           int      `json:"vCPU"`
-	Memory         float64  `json:"memory"` // GiB
-	Arch           []string `json:"arch"`
-	GPU            int      `json:"GPU"`
-	GPUModel       string   `json:"GPU_model,omitempty"`
-	LocalStorage   string   `json:"local_storage,omitempty"`
+	InstanceType   string             `json:"instance_type"`
+	InstanceFamily string             `json:"instance_family"`
+	PrettyName     string             `json:"pretty_name"`
+	VCPU           int                `json:"vCPU"`
+	Memory         float64            `json:"memory"` // GiB
+	Arch           []string           `json:"arch"`
+	GPU            int                `json:"GPU"`
+	GPUModel       string             `json:"GPU_model,omitempty"`
+	LocalStorage   string             `json:"local_storage,omitempty"`
+	Availability   utils.Availability `json:"availability,omitempty"`
 	// Pricing: region → os → {"ondemand": "price"}
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	Regions []string                                `json:"regions"`
@@ -182,13 +183,16 @@ type hwFlavorsResponse struct {
 
 // ----- anonymous pricing calculator fetch -----
 
+type portalMenuItem struct {
+	URLPath      string `json:"urlPath"`
+	RegionOnline struct {
+		RegionList []string `json:"regionList"`
+	} `json:"regionOnline"`
+	SubCategoryLists []portalMenuItem `json:"subCategoryLists"`
+}
+
 type portalMenuResponse struct {
-	MenuInfos []struct {
-		URLPath      string `json:"urlPath"`
-		RegionOnline struct {
-			RegionList []string `json:"regionList"`
-		} `json:"regionOnline"`
-	} `json:"menuInfos"`
+	MenuInfos []portalMenuItem `json:"menuInfos"`
 }
 
 type portalPlan struct {
@@ -239,14 +243,24 @@ func fetchPortalRegions() ([]string, error) {
 	if err := fetchPortalJSON(portalMenuURL, &response); err != nil {
 		return nil, err
 	}
-	for _, menu := range response.MenuInfos {
-		if menu.URLPath == "ecs" {
-			regions := append([]string(nil), menu.RegionOnline.RegionList...)
-			sort.Strings(regions)
-			return regions, nil
-		}
+	regions := findPortalRegions(response.MenuInfos, "ecs")
+	if len(regions) > 0 {
+		sort.Strings(regions)
+		return regions, nil
 	}
 	return nil, fmt.Errorf("ECS calculator menu not found")
+}
+
+func findPortalRegions(items []portalMenuItem, urlPath string) []string {
+	for _, item := range items {
+		if item.URLPath == urlPath {
+			return append([]string(nil), item.RegionOnline.RegionList...)
+		}
+		if regions := findPortalRegions(item.SubCategoryLists, urlPath); len(regions) > 0 {
+			return regions
+		}
+	}
+	return nil
 }
 
 func fetchSpecsFromPortal() (map[string]*HWInstance, error) {
@@ -295,6 +309,7 @@ func mergePortalVM(all map[string]*HWInstance, region string, vm portalVM) {
 			GPUModel:       gpuModel,
 			LocalStorage:   normalizeLocalDisk(vm.LocalDisk),
 			Pricing:        map[string]map[string]map[string]string{},
+			Availability:   utils.Availability{},
 		}
 		all[vm.Spec] = instance
 	}
@@ -308,6 +323,19 @@ func mergePortalVM(all map[string]*HWInstance, region string, vm portalVM) {
 	}
 	if len(prices) > 0 {
 		instance.Pricing[region] = map[string]map[string]string{"linux": prices}
+	}
+	options := map[string]utils.AvailabilityStatus{}
+	for _, plan := range vm.PlanList {
+		if option := portalPurchaseOption(plan.BillingMode); option != "" {
+			options[option] = utils.AvailabilityOffered
+		}
+	}
+	if len(options) > 0 {
+		instance.Availability[region] = utils.RegionAvailability{
+			Status:          utils.AvailabilityOffered,
+			Evidence:        utils.AvailabilityPricing,
+			PurchaseOptions: options,
+		}
 	}
 }
 
@@ -323,6 +351,19 @@ func portalPriceKey(plan portalPlan) string {
 		}
 	}
 	return ""
+}
+
+func portalPurchaseOption(billingMode string) string {
+	switch billingMode {
+	case "ONDEMAND":
+		return "ondemand"
+	case "MONTHLY", "YEARLY":
+		return "prepaid"
+	case "RI":
+		return "reserved"
+	default:
+		return ""
+	}
 }
 
 func parseLeadingInt(value string) int {

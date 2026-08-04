@@ -58,6 +58,7 @@ type VPSInstance struct {
 	Transfer           int                                      `json:"transfer"`
 	Pricing            map[string]map[string]map[string]float64 `json:"pricing"`
 	Regions            map[string]string                        `json:"regions"`
+	Availability       utils.Availability                       `json:"availability,omitempty"`
 }
 
 func DoDigitalOceanScraping() error {
@@ -91,9 +92,20 @@ func DoDigitalOceanScraping() error {
 			Transfer:           plan.Price.TransferQuota,
 			Pricing:            map[string]map[string]map[string]float64{},
 			Regions:            map[string]string{},
+			Availability:       utils.Availability{},
 		}
 
-		for _, regionID := range availability[family] {
+		for regionID, status := range availability[family] {
+			instance.Availability[regionID] = utils.RegionAvailability{
+				Status:   status,
+				Evidence: utils.AvailabilityCatalog,
+				PurchaseOptions: map[string]utils.AvailabilityStatus{
+					"ondemand": status,
+				},
+			}
+			if status != utils.AvailabilityAvailable {
+				continue
+			}
 			instance.Pricing[regionID] = map[string]map[string]float64{
 				"linux": {"ondemand": plan.Price.Hourly},
 			}
@@ -239,15 +251,18 @@ func fetchRegions() (map[string]string, error) {
 	return regions, nil
 }
 
-func fetchDropletAvailability(regions map[string]string) (map[string][]string, error) {
+func fetchDropletAvailability(regions map[string]string) (map[string]map[string]utils.AvailabilityStatus, error) {
 	body, err := utils.FetchWithRetry(availabilityURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch DigitalOcean droplet availability: %w", err)
 	}
+	return parseDropletAvailability(string(body), regions)
+}
 
-	lines := strings.Split(string(body), "\n")
+func parseDropletAvailability(markdown string, regions map[string]string) (map[string]map[string]utils.AvailabilityStatus, error) {
+	lines := strings.Split(markdown, "\n")
 	header := []string{}
-	availability := map[string][]string{}
+	availability := map[string]map[string]utils.AvailabilityStatus{}
 	for _, line := range lines {
 		if strings.HasPrefix(line, "| Droplet Plans |") {
 			header = markdownCells(line)[1:]
@@ -269,12 +284,21 @@ func fetchDropletAvailability(regions map[string]string) (map[string][]string, e
 			continue
 		}
 		for i, cell := range cells[1:] {
-			if cell != "✓" {
+			var status utils.AvailabilityStatus
+			switch cell {
+			case "✓":
+				status = utils.AvailabilityAvailable
+			case "◐":
+				status = utils.AvailabilityLimited
+			default:
 				continue
 			}
 			regionID := strings.ToLower(header[i])
 			if _, ok := regions[regionID]; ok {
-				availability[family] = append(availability[family], regionID)
+				if availability[family] == nil {
+					availability[family] = map[string]utils.AvailabilityStatus{}
+				}
+				availability[family][regionID] = status
 			}
 		}
 	}

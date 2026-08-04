@@ -1,11 +1,16 @@
 package alicloud
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
+)
 
 func TestBuildInstancesFromAnonymousPricing(t *testing.T) {
 	intl := pricingFile{PricingInfo: map[string]pricingEntry{
 		"us-east-1::ecs.g6.xlarge::vpc::linux::optimized": {
-			Hours: []pricePeriod{{Price: "0.20", Period: "1"}},
+			Hours:  []pricePeriod{{Price: "0.20", Period: "1"}},
+			Months: []pricePeriod{{Price: "100", Period: "1"}},
 		},
 	}}
 	cn := pricingFile{PricingInfo: map[string]pricingEntry{
@@ -29,6 +34,13 @@ func TestBuildInstancesFromAnonymousPricing(t *testing.T) {
 	}
 	if len(instance.Regions) != 2 {
 		t.Fatalf("regions = %v, want two regions", instance.Regions)
+	}
+	availability := instance.Availability["us-east-1"]
+	if availability.Status != utils.AvailabilityOffered ||
+		availability.Evidence != utils.AvailabilityPricing ||
+		availability.PurchaseOptions["ondemand"] != utils.AvailabilityOffered ||
+		availability.PurchaseOptions["prepaid"] != utils.AvailabilityOffered {
+		t.Fatalf("availability = %+v", availability)
 	}
 }
 

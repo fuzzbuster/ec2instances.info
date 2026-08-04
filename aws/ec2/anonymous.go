@@ -125,6 +125,7 @@ func parseSpecificationDocument(document []byte, instances map[string]*EC2Instan
 				VpcOnly:                  true,
 				PlacementGroupSupport:    true,
 				AvailabilityZones:        map[string][]string{},
+				Availability:             utils.Availability{},
 				IPV6Support:              true,
 			}
 			if coreIndex, ok := index["CPU cores"]; ok {
@@ -194,6 +195,16 @@ func applyCompactPricing(instances map[string]*EC2Instance, pricing compactPrici
 				"linux": &EC2PricingData{OnDemand: trimPrice(price.Price)},
 			}
 			instance.Regions[location] = location
+			if instance.Availability == nil {
+				instance.Availability = utils.Availability{}
+			}
+			instance.Availability[location] = utils.RegionAvailability{
+				Status:   utils.AvailabilityOffered,
+				Evidence: utils.AvailabilityPricing,
+				PurchaseOptions: map[string]utils.AvailabilityStatus{
+					"ondemand": utils.AvailabilityOffered,
+				},
+			}
 		}
 	}
 }

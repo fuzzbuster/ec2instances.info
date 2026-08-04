@@ -15,6 +15,14 @@ tags. The Markdown document supplies region names and a plan-family by region
 availability matrix. The scraper joins both sources to emit vCPU, memory, disk,
 network, transfer and hourly pricing.
 
+## Availability
+
+The regional matrix produces `catalog` evidence for the `ondemand` purchase
+option. A check mark maps to `status: "available"`; a half-filled circle maps
+to `status: "limited"`. Blank or future entries are omitted. Limited regions
+are exposed through the new `availability` field without changing the legacy
+`regions` and `pricing` output.
+
 ## Credentials and limits
 
 No DigitalOcean token is read or required. The output covers Droplet plans

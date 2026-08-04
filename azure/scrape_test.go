@@ -41,6 +41,28 @@ func TestProcessSpecsDataWithoutManagementAPI(t *testing.T) {
 	}
 }
 
+func TestAvailabilityFromAzurePricing(t *testing.T) {
+	availability := availabilityFromAzurePricing(map[string]map[string]map[string]any{
+		"west-us": {
+			"linux": {
+				"ondemand":    1.25,
+				"spot_min":    0.3,
+				"lowpriority": 0.4,
+				"reserved":    map[string]any{"yrTerm1Standard.allUpfront": 0.8},
+			},
+		},
+	})
+	region := availability["west-us"]
+	if region.Status != utils.AvailabilityOffered || region.Evidence != utils.AvailabilityPricing {
+		t.Fatalf("availability = %+v", region)
+	}
+	for _, option := range []string{"ondemand", "spot", "lowpriority", "reserved"} {
+		if region.PurchaseOptions[option] != utils.AvailabilityOffered {
+			t.Errorf("purchase option %q = %q", option, region.PurchaseOptions[option])
+		}
+	}
+}
+
 func TestHasAzureCredentialsRequiresCompleteSet(t *testing.T) {
 	for _, key := range []string{
 		"AZURE_TENANT_ID",

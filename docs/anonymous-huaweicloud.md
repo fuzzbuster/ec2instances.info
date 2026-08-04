@@ -13,6 +13,13 @@ The scraper selects the ECS menu, visits every advertised region and merges
 Linux VM records. The result includes vCPU, memory, architecture, accelerator,
 local disk, region and On-Demand, monthly and yearly prices.
 
+## Availability
+
+Calculator plans produce regional `availability` with `status: "offered"` and
+`evidence: "pricing"`. `ONDEMAND` maps to `ondemand`, monthly and yearly plans
+map to `prepaid`, and `RI` maps to `reserved`. Calculator presence does not
+prove current capacity.
+
 ## Optional credentials
 
 `HUAWEICLOUD_ACCESS_KEY` and `HUAWEICLOUD_SECRET_KEY`, together with
@@ -24,4 +31,5 @@ region-specific variables recognized by the scraper.
 
 Calculator endpoints are public website services and may change without an API
 deprecation period. Failed regions are skipped. If all anonymous regions fail
-or yield no instances, the scraper uses its smaller embedded seed dataset.
+or yield no instances, the scraper uses its smaller embedded seed dataset,
+which does not emit `availability`.

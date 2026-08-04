@@ -1,6 +1,11 @@
 package vultr
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
+)
 
 func TestNextPageUsesVultrCursor(t *testing.T) {
 	if got := nextPage(plansURL, "next-token"); got != plansURL+"&cursor=next-token" {
@@ -33,5 +38,19 @@ func TestGPUHelpers(t *testing.T) {
 	}
 	if got := gpuCount(Plan{GPUBrand: "none"}); got != 0 {
 		t.Fatalf("non-GPU gpuCount() = %d, want 0", got)
+	}
+}
+
+func TestVultrPurchaseOptions(t *testing.T) {
+	got := vultrPurchaseOptions(Plan{DeployOnDemand: true, DeployPreemptible: true})
+	want := map[string]utils.AvailabilityStatus{
+		"ondemand":    utils.AvailabilityAvailable,
+		"preemptible": utils.AvailabilityAvailable,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("vultrPurchaseOptions() = %v, want %v", got, want)
+	}
+	if got := vultrPurchaseOptions(Plan{}); len(got) != 0 {
+		t.Fatalf("disabled deployment options = %v", got)
 	}
 }
