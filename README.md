@@ -25,6 +25,20 @@ Release tags use the `scraper-v<semver>` format. Published targets are:
 
 Each release includes `checksums.txt`.
 
+## Data snapshots
+
+An anonymous data snapshot is published on the 15th of each month at 00:00 UTC.
+Snapshot releases use `data-YYYY-MM-DD` tags and contain
+`ec2instances-data-YYYY-MM-DD.tar.gz` plus `checksums.txt`. The archive preserves
+the CLI output paths and contains the raw `instances.json` files for AWS, Azure,
+Alibaba Cloud, Tencent Cloud, Volcengine, Huawei Cloud, Vultr, Linode,
+DigitalOcean, and Hetzner.
+
+GCP is excluded because its required catalog and compute APIs do not support
+anonymous access. Snapshot availability describes the evidence observed at
+scrape time, not guaranteed realtime capacity; see
+[instance availability](docs/availability.md).
+
 ## Usage
 
 ```text
