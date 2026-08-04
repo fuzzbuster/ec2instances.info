@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
 func TestPostPublicJSON(t *testing.T) {
@@ -84,12 +86,23 @@ func TestMergePublicInstance(t *testing.T) {
 	lowerPrice.Price.UnitPriceDiscount = 0.25
 	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-1", lowerPrice)
 
-	prepaid := base
-	prepaid.InstanceChargeType = "PREPAID"
-	prepaid.Price.OriginalPrice = 200
-	prepaid.Price.DiscountPrice = 160
-	prepaid.Status = "SOLD_OUT"
-	mergePublicInstance(instances, "ap-shanghai", "ap-shanghai-2", prepaid)
+	prepaidAvailable := base
+	prepaidAvailable.InstanceChargeType = "PREPAID"
+	prepaidAvailable.Price.OriginalPrice = 180
+	prepaidAvailable.Price.DiscountPrice = 150
+	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-1", prepaidAvailable)
+
+	spotSoldOut := base
+	spotSoldOut.InstanceChargeType = "SPOTPAID"
+	spotSoldOut.Status = "SOLD_OUT"
+	spotSoldOut.Price.UnitPriceDiscount = 0.1
+	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-1", spotSoldOut)
+
+	prepaidSoldOut := prepaidAvailable
+	prepaidSoldOut.Price.OriginalPrice = 200
+	prepaidSoldOut.Price.DiscountPrice = 160
+	prepaidSoldOut.Status = "SOLD_OUT"
+	mergePublicInstance(instances, "ap-shanghai", "ap-shanghai-2", prepaidSoldOut)
 
 	instance := instances[base.InstanceType]
 	if instance == nil {
@@ -119,6 +132,27 @@ func TestMergePublicInstance(t *testing.T) {
 	if got := instance.Pricing["ap-shanghai"]["linux"]["monthly"]; got != "200" {
 		t.Fatalf("monthly price = %q, want 200", got)
 	}
+	nanjing := instance.Availability["ap-nanjing"]
+	if nanjing.Status != utils.AvailabilityAvailable || nanjing.Evidence != utils.AvailabilityRealtime {
+		t.Fatalf("nanjing availability = %+v", nanjing)
+	}
+	wantOptions := map[string]utils.AvailabilityStatus{
+		"ondemand": utils.AvailabilityAvailable,
+		"prepaid":  utils.AvailabilityAvailable,
+		"spot":     utils.AvailabilitySoldOut,
+	}
+	if !reflect.DeepEqual(nanjing.PurchaseOptions, wantOptions) {
+		t.Fatalf("nanjing purchase options = %v, want %v", nanjing.PurchaseOptions, wantOptions)
+	}
+	nanjingZone := nanjing.Zones["ap-nanjing-1"]
+	if nanjingZone.Status != utils.AvailabilityAvailable || !reflect.DeepEqual(nanjingZone.PurchaseOptions, wantOptions) {
+		t.Fatalf("nanjing zone availability = %+v", nanjingZone)
+	}
+	shanghai := instance.Availability["ap-shanghai"]
+	if shanghai.Status != utils.AvailabilitySoldOut ||
+		shanghai.PurchaseOptions["prepaid"] != utils.AvailabilitySoldOut {
+		t.Fatalf("shanghai availability = %+v", shanghai)
+	}
 }
 
 func TestMergePublicInstanceIgnoresMissingType(t *testing.T) {
@@ -126,5 +160,23 @@ func TestMergePublicInstanceIgnoresMissingType(t *testing.T) {
 	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-1", publicInstance{})
 	if len(instances) != 0 {
 		t.Fatalf("missing instance type produced output: %v", instances)
+	}
+}
+
+func TestMergePublicInstancePreservesUnknownStatus(t *testing.T) {
+	instances := map[string]*CVMInstance{}
+	mergePublicInstance(instances, "ap-nanjing", "ap-nanjing-3", publicInstance{
+		InstanceType:       "S5.MEDIUM2",
+		InstanceChargeType: "POSTPAID_BY_HOUR",
+		Status:             "MAINTENANCE",
+	})
+
+	availability := instances["S5.MEDIUM2"].Availability["ap-nanjing"]
+	if availability.Status != utils.AvailabilityUnknown ||
+		availability.PurchaseOptions["ondemand"] != utils.AvailabilityUnknown {
+		t.Fatalf("availability = %+v", availability)
+	}
+	if len(instances["S5.MEDIUM2"].AvailabilityZones) != 0 {
+		t.Fatalf("unknown status marked sellable: %v", instances["S5.MEDIUM2"].AvailabilityZones)
 	}
 }

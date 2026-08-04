@@ -70,6 +70,7 @@ type CVMInstance struct {
 	PhysicalProcessor  string              `json:"physical_processor,omitempty"`
 	LocalStorage       string              `json:"local_storage,omitempty"`
 	AvailabilityZones  map[string][]string `json:"availability_zones,omitempty"`
+	Availability       utils.Availability  `json:"availability,omitempty"`
 	// Pricing: region → os → price type → price
 	Pricing map[string]map[string]map[string]string `json:"pricing"`
 	Regions []string                                `json:"regions"`
@@ -376,6 +377,7 @@ func mergePublicInstance(all map[string]*CVMInstance, region, zone string, sourc
 	if source.Status == "SELL" {
 		instance.AvailabilityZones[region] = utils.AppendUnique(instance.AvailabilityZones[region], zone)
 	}
+	mergePublicAvailability(instance, region, zone, source)
 	prices := publicPrices(source)
 	if len(prices) == 0 {
 		return
@@ -386,6 +388,91 @@ func mergePublicInstance(all map[string]*CVMInstance, region, zone string, sourc
 	for priceType, price := range prices {
 		setLowestPrice(instance.Pricing[region]["linux"], priceType, price)
 	}
+}
+
+func mergePublicAvailability(instance *CVMInstance, region, zone string, source publicInstance) {
+	option := publicPurchaseOption(source.InstanceChargeType)
+	if option == "" {
+		return
+	}
+	status := publicAvailabilityStatus(source.Status)
+	if instance.Availability == nil {
+		instance.Availability = utils.Availability{}
+	}
+
+	regionAvailability := instance.Availability[region]
+	regionAvailability.Evidence = utils.AvailabilityRealtime
+	if regionAvailability.PurchaseOptions == nil {
+		regionAvailability.PurchaseOptions = map[string]utils.AvailabilityStatus{}
+	}
+	if regionAvailability.Zones == nil {
+		regionAvailability.Zones = map[string]utils.ZoneAvailability{}
+	}
+
+	zoneAvailability := regionAvailability.Zones[zone]
+	if zoneAvailability.PurchaseOptions == nil {
+		zoneAvailability.PurchaseOptions = map[string]utils.AvailabilityStatus{}
+	}
+	zoneAvailability.PurchaseOptions[option] = mergeAvailabilityStatus(
+		zoneAvailability.PurchaseOptions[option],
+		status,
+	)
+	zoneAvailability.Status = aggregateAvailabilityStatus(zoneAvailability.PurchaseOptions)
+	regionAvailability.Zones[zone] = zoneAvailability
+
+	regionAvailability.PurchaseOptions[option] = mergeAvailabilityStatus(
+		regionAvailability.PurchaseOptions[option],
+		status,
+	)
+	regionAvailability.Status = aggregateAvailabilityStatus(regionAvailability.PurchaseOptions)
+	instance.Availability[region] = regionAvailability
+}
+
+func publicPurchaseOption(chargeType string) string {
+	switch chargeType {
+	case "POSTPAID_BY_HOUR":
+		return "ondemand"
+	case "PREPAID":
+		return "prepaid"
+	case "SPOTPAID":
+		return "spot"
+	default:
+		return ""
+	}
+}
+
+func publicAvailabilityStatus(status string) utils.AvailabilityStatus {
+	switch status {
+	case "SELL":
+		return utils.AvailabilityAvailable
+	case "SOLD_OUT":
+		return utils.AvailabilitySoldOut
+	default:
+		return utils.AvailabilityUnknown
+	}
+}
+
+func mergeAvailabilityStatus(current, next utils.AvailabilityStatus) utils.AvailabilityStatus {
+	for _, status := range []utils.AvailabilityStatus{
+		utils.AvailabilityAvailable,
+		utils.AvailabilityLimited,
+		utils.AvailabilityOffered,
+		utils.AvailabilityUnknown,
+		utils.AvailabilitySoldOut,
+	} {
+		if current == status || next == status {
+			return status
+		}
+	}
+	return utils.AvailabilityUnknown
+}
+
+func aggregateAvailabilityStatus(options map[string]utils.AvailabilityStatus) utils.AvailabilityStatus {
+	status := utils.AvailabilityStatus("")
+	for _, optionStatus := range options {
+		status = mergeAvailabilityStatus(status, optionStatus)
+	}
+	return status
 }
 
 func publicPrices(instance publicInstance) map[string]float64 {
