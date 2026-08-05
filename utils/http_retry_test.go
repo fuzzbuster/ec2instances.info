@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,6 +20,19 @@ func shrinkBackoff(t *testing.T) {
 	retryMaxDelay = 2 * time.Millisecond
 	t.Cleanup(func() {
 		retryBaseDelay, retryMaxDelay = origBase, origMax
+	})
+}
+
+func configureHTTPForTest(t *testing.T, config HTTPConfig) {
+	t.Helper()
+	original := CurrentHTTPConfig()
+	if err := ConfigureHTTP(config); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := ConfigureHTTP(original); err != nil {
+			t.Errorf("restore HTTP config: %v", err)
+		}
 	})
 }
 
@@ -91,8 +105,9 @@ func TestFetchWithRetryGivesUpAfterCap(t *testing.T) {
 	if !strings.Contains(err.Error(), "status code 502") {
 		t.Fatalf("expected error to mention the status code and url, got: %v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != maxHTTPAttempts {
-		t.Fatalf("expected exactly %d attempts, got %d", maxHTTPAttempts, got)
+	wantAttempts := CurrentHTTPConfig().MaxAttempts
+	if got := atomic.LoadInt32(&calls); got != int32(wantAttempts) {
+		t.Fatalf("expected exactly %d attempts, got %d", wantAttempts, got)
 	}
 }
 
@@ -288,7 +303,51 @@ func TestPostFormWithRetryGivesUpAfterCap(t *testing.T) {
 	if !strings.Contains(err.Error(), "status code 502") {
 		t.Fatalf("expected error to mention the status code and url, got: %v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != maxHTTPAttempts {
-		t.Fatalf("expected exactly %d attempts, got %d", maxHTTPAttempts, got)
+	wantAttempts := CurrentHTTPConfig().MaxAttempts
+	if got := atomic.LoadInt32(&calls); got != int32(wantAttempts) {
+		t.Fatalf("expected exactly %d attempts, got %d", wantAttempts, got)
+	}
+}
+
+func TestFetchWithRetryUsesConfiguredAttemptLimit(t *testing.T) {
+	shrinkBackoff(t)
+
+	for _, attempts := range []int{1, 3} {
+		t.Run(fmt.Sprintf("%d_attempts", attempts), func(t *testing.T) {
+			config := DefaultHTTPConfig()
+			config.MaxAttempts = attempts
+			configureHTTPForTest(t, config)
+
+			var calls int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&calls, 1)
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer srv.Close()
+
+			if _, err := FetchWithRetry(srv.URL, nil); err == nil {
+				t.Fatal("expected request failure")
+			}
+			if got := atomic.LoadInt32(&calls); got != int32(attempts) {
+				t.Fatalf("attempts = %d, want %d", got, attempts)
+			}
+		})
+	}
+}
+
+func TestFetchWithRetryUsesConfiguredTimeout(t *testing.T) {
+	config := DefaultHTTPConfig()
+	config.RequestTimeout = 20 * time.Millisecond
+	config.MaxAttempts = 1
+	configureHTTPForTest(t, config)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if _, err := FetchWithRetry(srv.URL, nil); err == nil {
+		t.Fatal("expected timeout")
 	}
 }

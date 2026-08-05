@@ -6,6 +6,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
 func TestProvidersJSON(t *testing.T) {
@@ -77,5 +80,81 @@ func TestRunProvidersCollectsPartialFailure(t *testing.T) {
 	}
 	if len(failed) != 1 || failed[0].Name != "bad" || failed[0].Error != "failed" {
 		t.Fatalf("failed = %#v", failed)
+	}
+}
+
+func TestResolveHTTPConfigPrecedence(t *testing.T) {
+	t.Setenv("EC2INSTANCES_REQUEST_TIMEOUT", "9m")
+	t.Setenv("EC2INSTANCES_REQUEST_ATTEMPTS", "9")
+
+	config, err := resolveHTTPConfig(2*time.Minute, true, 3, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.RequestTimeout != 2*time.Minute || config.MaxAttempts != 3 {
+		t.Fatalf("CLI config = %+v", config)
+	}
+
+	config, err = resolveHTTPConfig(0, false, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.RequestTimeout != 9*time.Minute || config.MaxAttempts != 9 {
+		t.Fatalf("environment config = %+v", config)
+	}
+}
+
+func TestResolveHTTPConfigUsesDefaults(t *testing.T) {
+	t.Setenv("EC2INSTANCES_REQUEST_TIMEOUT", "")
+	t.Setenv("EC2INSTANCES_REQUEST_ATTEMPTS", "")
+
+	config, err := resolveHTTPConfig(0, false, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config != utils.DefaultHTTPConfig() {
+		t.Fatalf("config = %+v, want %+v", config, utils.DefaultHTTPConfig())
+	}
+}
+
+func TestScrapeRejectsInvalidHTTPConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "invalid duration", args: []string{"--json", "scrape", "--request-timeout", "invalid"}},
+		{name: "zero timeout", args: []string{"--json", "scrape", "--request-timeout", "0s"}},
+		{name: "zero attempts", args: []string{"--json", "scrape", "--request-attempts", "0"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("EC2INSTANCES_REQUEST_TIMEOUT", "")
+			t.Setenv("EC2INSTANCES_REQUEST_ATTEMPTS", "")
+
+			var stdout, stderr bytes.Buffer
+			if code := runCLI(test.args, &stdout, &stderr); code != exitUsage {
+				t.Fatalf("runCLI() code = %d, want %d", code, exitUsage)
+			}
+			var result scrapeResult
+			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+				t.Fatalf("decode output: %v", err)
+			}
+			if result.Status != "error" || result.Error == "" {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+		})
+	}
+}
+
+func TestUsageIncludesHTTPConfig(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"scrape", "--help"}, &stdout, &stderr); code != exitSuccess {
+		t.Fatalf("runCLI() code = %d", code)
+	}
+	for _, option := range []string{"--request-timeout", "--request-attempts"} {
+		if !strings.Contains(stdout.String(), option) {
+			t.Fatalf("usage does not contain %s: %q", option, stdout.String())
+		}
 	}
 }

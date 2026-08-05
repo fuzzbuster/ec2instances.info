@@ -19,9 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -48,11 +46,6 @@ var huaweiRegions = []string{
 	"ap-southeast-3", // Singapore
 	"na-mexico-1",    // Mexico
 }
-
-var huaweiHTTPClient = req.C().
-	SetTimeout(30 * time.Second).
-	DisableAutoDecode().
-	SetProxy(http.ProxyFromEnvironment)
 
 // ----- output instance struct -----
 
@@ -222,7 +215,7 @@ type portalProductResponse struct {
 }
 
 func fetchPortalJSON(url string, dest any) error {
-	resp, err := huaweiHTTPClient.R().
+	resp, err := utils.RetryingHTTPClient().R().
 		SetHeaders(map[string]string{
 			"Accept":  "application/json",
 			"Origin":  "https://www.huaweicloud.com",
@@ -463,7 +456,7 @@ func listFlavors(ak, sk, projectID, region string) ([]hwFlavor, error) {
 	}
 
 	var out hwFlavorsResponse
-	resp, err := huaweiHTTPClient.R().
+	resp, err := utils.RetryingHTTPClient().R().
 		SetHeaders(map[string]string{
 			"Authorization": authHeader,
 			"X-Sdk-Date":    sdkDate,

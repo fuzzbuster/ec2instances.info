@@ -13,6 +13,7 @@ import (
 	"github.com/imroc/req/v3"
 
 	ec2Internal "github.com/fuzzbuster/ec2instances.info/aws/ec2"
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
 const describeInstanceTypesXML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -276,6 +277,35 @@ func TestDescribeInstanceTypesPageDoesNotRetryPermanentError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "AKID") {
 		t.Fatalf("credentials leaked in error: %v", err)
+	}
+}
+
+func TestDescribeInstanceTypesPageUsesConfiguredAttemptLimit(t *testing.T) {
+	shrinkEC2APIRetry(t)
+	original := utils.CurrentHTTPConfig()
+	config := original
+	config.MaxAttempts = 2
+	if err := utils.ConfigureHTTP(config); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := utils.ConfigureHTTP(original); err != nil {
+			t.Errorf("restore HTTP config: %v", err)
+		}
+	})
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	if _, err := testEC2APIClient(server.URL).describeInstanceTypesPage("us-east-1", ""); err == nil {
+		t.Fatal("expected error")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls = %d, want 2", calls.Load())
 	}
 }
 

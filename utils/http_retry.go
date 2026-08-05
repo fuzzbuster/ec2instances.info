@@ -5,20 +5,64 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/imroc/req/v3"
 )
 
-const (
-	maxHTTPAttempts   = 6
-	perAttemptTimeout = 15 * time.Minute
-)
+type HTTPConfig struct {
+	RequestTimeout time.Duration
+	MaxAttempts    int
+}
 
 var (
 	retryBaseDelay = 2 * time.Second
 	retryMaxDelay  = 30 * time.Second
+
+	httpConfigMu      sync.RWMutex
+	currentHTTPConfig = DefaultHTTPConfig()
+	sharedHTTPClient  = newRetryingHTTPClient(currentHTTPConfig)
 )
+
+func DefaultHTTPConfig() HTTPConfig {
+	return HTTPConfig{
+		RequestTimeout: 15 * time.Minute,
+		MaxAttempts:    6,
+	}
+}
+
+func ConfigureHTTP(config HTTPConfig) error {
+	if config.RequestTimeout <= 0 {
+		return fmt.Errorf("request timeout must be greater than zero")
+	}
+	if config.MaxAttempts < 1 {
+		return fmt.Errorf("request attempts must be at least 1")
+	}
+
+	client := newRetryingHTTPClient(config)
+	httpConfigMu.Lock()
+	currentHTTPConfig = config
+	sharedHTTPClient = client
+	httpConfigMu.Unlock()
+	return nil
+}
+
+func CurrentHTTPConfig() HTTPConfig {
+	httpConfigMu.RLock()
+	defer httpConfigMu.RUnlock()
+	return currentHTTPConfig
+}
+
+func RetryingHTTPClient() *req.Client {
+	httpConfigMu.RLock()
+	defer httpConfigMu.RUnlock()
+	return sharedHTTPClient
+}
+
+func NewHTTPClient() *req.Client {
+	return newHTTPClient(CurrentHTTPConfig())
+}
 
 func retryableStatus(code int) bool {
 	return code == http.StatusTooManyRequests ||
@@ -34,12 +78,27 @@ func backoffFor(attempt int) time.Duration {
 	return delay
 }
 
-func newHTTPClient() *req.Client {
+func newHTTPClient(config HTTPConfig) *req.Client {
 	client := req.C().
-		SetTimeout(perAttemptTimeout).
+		SetTimeout(config.RequestTimeout).
 		DisableAutoDecode().
-		SetProxy(http.ProxyFromEnvironment).
-		SetCommonRetryCount(maxHTTPAttempts - 1).
+		SetProxy(http.ProxyFromEnvironment)
+
+	client.Transport.
+		SetMaxIdleConns(200).
+		SetMaxConnsPerHost(50).
+		SetIdleConnTimeout(90 * time.Second).
+		SetTLSHandshakeTimeout(30 * time.Second).
+		SetResponseHeaderTimeout(60 * time.Second).
+		SetExpectContinueTimeout(time.Second)
+	client.Transport.MaxIdleConnsPerHost = 50
+
+	return client
+}
+
+func newRetryingHTTPClient(config HTTPConfig) *req.Client {
+	client := newHTTPClient(config).
+		SetCommonRetryCount(config.MaxAttempts - 1).
 		SetCommonRetryCondition(func(resp *req.Response, err error) bool {
 			if err != nil {
 				return true
@@ -66,24 +125,12 @@ func newHTTPClient() *req.Client {
 				resp.Request.RawURL,
 				backoffFor(resp.Request.RetryAttempt),
 				resp.Request.RetryAttempt+1,
-				maxHTTPAttempts,
+				config.MaxAttempts,
 				retryErr,
 			)
 		})
-
-	client.Transport.
-		SetMaxIdleConns(200).
-		SetMaxConnsPerHost(50).
-		SetIdleConnTimeout(90 * time.Second).
-		SetTLSHandshakeTimeout(30 * time.Second).
-		SetResponseHeaderTimeout(60 * time.Second).
-		SetExpectContinueTimeout(time.Second)
-	client.Transport.MaxIdleConnsPerHost = 50
-
 	return client
 }
-
-var sharedHTTPClient = newHTTPClient()
 
 // FetchWithRetry performs a GET with bounded retry and returns the response body.
 func FetchWithRetry(urlStr string, bearerToken *string) ([]byte, error) {
@@ -91,7 +138,7 @@ func FetchWithRetry(urlStr string, bearerToken *string) ([]byte, error) {
 		return nil, err
 	}
 
-	request := sharedHTTPClient.R()
+	request := RetryingHTTPClient().R()
 	if bearerToken != nil {
 		request.SetBearerAuthToken(*bearerToken)
 	}
@@ -105,7 +152,7 @@ func PostFormWithRetry(urlStr string, data url.Values) ([]byte, error) {
 		return nil, err
 	}
 
-	resp, err := sharedHTTPClient.R().
+	resp, err := RetryingHTTPClient().R().
 		SetFormDataFromValues(data).
 		Post(urlStr)
 	return responseBody(urlStr, resp, err)

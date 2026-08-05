@@ -15,14 +15,12 @@
 package tencentcloud
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/fuzzbuster/ec2instances.info/utils"
-	"github.com/imroc/req/v3"
 	"log"
 	"net/http"
 	"os"
@@ -47,12 +45,6 @@ var tencentRegions = []string{
 	"ap-nanjing", "ap-hongkong", "ap-singapore", "ap-bangkok", "ap-mumbai",
 	"ap-tokyo", "ap-seoul", "na-siliconvalley", "na-ashburn", "eu-frankfurt",
 }
-
-var tencentHTTPClient = req.C().
-	SetTimeout(30 * time.Second).
-	DisableAutoDecode()
-
-var publicHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // ----- output instance struct -----
 
@@ -303,21 +295,17 @@ func fetchPublicZoneInstances(region, zone string) ([]publicInstance, error) {
 }
 
 func postPublicJSON(endpoint string, body []byte, out any) error {
-	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	response, err := utils.RetryingHTTPClient().R().
+		SetHeader("Content-Type", "application/json; charset=UTF-8").
+		SetBodyBytes(body).
+		Post(endpoint)
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
-
-	response, err := publicHTTPClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d for %s", response.StatusCode, endpoint)
 	}
-	if err := json.NewDecoder(response.Body).Decode(out); err != nil {
+	if err := json.Unmarshal(response.Bytes(), out); err != nil {
 		return fmt.Errorf("decode %s: %w", endpoint, err)
 	}
 	return nil
@@ -617,7 +605,7 @@ func describeInstanceTypeConfigs(secretID, secretKey, region string) ([]cvmInsta
 	headers["Authorization"] = auth
 
 	var out cvmResponse
-	resp, err := tencentHTTPClient.R().
+	resp, err := utils.RetryingHTTPClient().R().
 		SetHeaders(headers).
 		SetBodyString(payload).
 		SetSuccessResult(&out).

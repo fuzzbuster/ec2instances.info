@@ -22,7 +22,6 @@ import (
 	"github.com/fuzzbuster/ec2instances.info/utils"
 	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -46,11 +45,6 @@ var volcengineRegions = []string{
 	"ap-southeast-1", "ap-southeast-3", "ap-southeast-2",
 	"us-east-1",
 }
-
-var volcengineHTTPClient = req.C().
-	SetTimeout(30 * time.Second).
-	DisableAutoDecode().
-	SetProxy(http.ProxyFromEnvironment)
 
 // ----- output instance struct -----
 
@@ -227,7 +221,7 @@ func fetchAnonymousSpecs() (map[string]*VEInstance, error) {
 }
 
 func fetchAnonymousJSON(method, url string, body any, dest any) error {
-	request := volcengineHTTPClient.R().
+	request := utils.RetryingHTTPClient().R().
 		SetHeaders(map[string]string{
 			"Accept":  "application/json",
 			"Origin":  "https://www.volcengine.com",
@@ -537,7 +531,7 @@ func describeInstanceTypes(accessKey, secretKey, nextToken string) ([]veInstance
 	}
 
 	var out veDescribeResponse
-	resp, err := volcengineHTTPClient.R().
+	resp, err := utils.RetryingHTTPClient().R().
 		SetHeaders(headers).
 		SetSuccessResult(&out).
 		Get(signedURL)

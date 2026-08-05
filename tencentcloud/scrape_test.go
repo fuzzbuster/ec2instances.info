@@ -2,6 +2,7 @@ package tencentcloud
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -15,13 +16,23 @@ func TestPostPublicJSON(t *testing.T) {
 		if request.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", request.Method)
 		}
+		if got := request.Header.Get("Content-Type"); got != "application/json; charset=UTF-8" {
+			t.Errorf("Content-Type = %q", got)
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != `{"region":"ap-nanjing"}` {
+			t.Errorf("body = %q", body)
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(writer, `{"code":0,"data":{"Response":{"RegionSet":[{"region":"ap-nanjing"}]}}}`)
 	}))
 	defer server.Close()
 
 	var response publicRegionsResponse
-	if err := postPublicJSON(server.URL, nil, &response); err != nil {
+	if err := postPublicJSON(server.URL, []byte(`{"region":"ap-nanjing"}`), &response); err != nil {
 		t.Fatal(err)
 	}
 	if got := response.Data.Response.RegionSet[0].Region; got != "ap-nanjing" {
@@ -31,7 +42,7 @@ func TestPostPublicJSON(t *testing.T) {
 
 func TestPostPublicJSONRejectsNonOKStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		http.Error(writer, "unavailable", http.StatusServiceUnavailable)
+		http.Error(writer, "bad request", http.StatusBadRequest)
 	}))
 	defer server.Close()
 

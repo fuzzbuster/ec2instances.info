@@ -16,12 +16,10 @@ import (
 	"github.com/imroc/req/v3"
 
 	ec2Internal "github.com/fuzzbuster/ec2instances.info/aws/ec2"
+	"github.com/fuzzbuster/ec2instances.info/utils"
 )
 
-const (
-	ec2APIVersion     = "2016-11-15"
-	ec2APIMaxAttempts = 10
-)
+const ec2APIVersion = "2016-11-15"
 
 var (
 	ec2APIRetryBaseDelay = 100 * time.Millisecond
@@ -69,9 +67,7 @@ type sigV4Details struct {
 
 func newEC2APIClient() *ec2APIClient {
 	return &ec2APIClient{
-		httpClient: req.C().
-			SetTimeout(30 * time.Second).
-			DisableAutoDecode(),
+		httpClient: utils.NewHTTPClient(),
 		credentials: ec2Credentials{
 			accessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
 			secretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
@@ -115,9 +111,10 @@ func (c *ec2APIClient) describeInstanceTypesPage(region, nextToken string) (*ec2
 	}
 	body := []byte(bodyValues.Encode())
 	endpoint := c.endpoint(region)
+	maxAttempts := utils.CurrentHTTPConfig().MaxAttempts
 
 	var lastErr error
-	for attempt := 1; attempt <= ec2APIMaxAttempts; attempt++ {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		headers, _, err := signEC2Request(c.credentials, region, endpoint, body, c.now().UTC())
 		if err != nil {
 			return nil, err
@@ -138,7 +135,7 @@ func (c *ec2APIClient) describeInstanceTypesPage(region, nextToken string) (*ec2
 			err = decodeEC2APIError(resp.StatusCode, resp.Bytes())
 		}
 		lastErr = err
-		if attempt == ec2APIMaxAttempts || !isRetryableEC2Error(err) {
+		if attempt == maxAttempts || !isRetryableEC2Error(err) {
 			return nil, err
 		}
 		time.Sleep(ec2APIBackoff(attempt))

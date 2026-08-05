@@ -31,6 +31,8 @@ it for RDS, managed databases, caches, data warehouses, or search services.
    ```sh
    ec2instances --json scrape \
      --providers tencentcloud,volcengine \
+     --request-timeout 2m \
+     --request-attempts 3 \
      --output-dir ./output
    ```
 
@@ -52,6 +54,16 @@ Output directory precedence:
 1. `--output-dir`
 2. `EC2INSTANCES_OUTPUT_DIR`
 3. `./output`
+
+HTTP request setting precedence:
+
+1. `--request-timeout` / `--request-attempts`
+2. `EC2INSTANCES_REQUEST_TIMEOUT` / `EC2INSTANCES_REQUEST_ATTEMPTS`
+3. `15m` per request attempt / 6 maximum attempts
+
+The timeout applies to each HTTP attempt, not to a complete provider scrape.
+Use Go duration syntax such as `30s` or `2m`. Standard `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NO_PROXY` environment variables control proxies.
 
 Required credentials:
 

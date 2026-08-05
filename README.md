@@ -44,7 +44,7 @@ scrape time, not guaranteed realtime capacity; see
 ```text
 ec2instances [--json] providers
 ec2instances [--json] version
-ec2instances [--json] scrape --providers <names> [--output-dir <path>]
+ec2instances [--json] scrape --providers <names> [--output-dir <path>] [--request-timeout <duration>] [--request-attempts <count>]
 ```
 
 Always select providers explicitly. The CLI does not start an implicit
@@ -54,6 +54,8 @@ full-cloud scrape.
 ec2instances --json providers
 ec2instances --json scrape \
   --providers tencentcloud,volcengine \
+  --request-timeout 2m \
+  --request-attempts 3 \
   --output-dir ./output
 ```
 
@@ -68,6 +70,16 @@ The output directory uses this precedence:
 1. `--output-dir`
 2. `EC2INSTANCES_OUTPUT_DIR`
 3. `./output`
+
+HTTP request settings use this precedence:
+
+1. `--request-timeout` / `--request-attempts`
+2. `EC2INSTANCES_REQUEST_TIMEOUT` / `EC2INSTANCES_REQUEST_ATTEMPTS`
+3. `15m` per request attempt / 6 maximum attempts
+
+The timeout applies to each HTTP attempt, not to a complete provider scrape.
+Durations use Go syntax such as `30s`, `2m`, or `15m`. Proxy settings use the
+standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables.
 
 Each dataset is written as JSON and as matching `.gz` and `.br` files.
 
@@ -133,8 +145,9 @@ notification providers when the following environment variables are set:
 | ntfy | `NTFY_URL`; optional `NTFY_TOKEN` for bearer auth or `NTFY_AUTH_HEADER` for a raw `Authorization` header |
 | Bark | `BARK_URL` server base URL, for example `https://api.day.app`; `BARK_DEVICE_KEY` |
 
-Notification requests use a 5 second timeout. Delivery failures are logged and
-do not fail the scrape.
+Notification requests always use their independent 5 second timeout and are not
+affected by scrape request settings. Delivery failures are logged and do not
+fail the scrape.
 
 ## Agent Contract
 

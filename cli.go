@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/fuzzbuster/ec2instances.info/utils"
 )
@@ -87,11 +89,34 @@ func runScrape(args []string, stdout, stderr io.Writer, jsonOutput bool) int {
 	flags.SetOutput(io.Discard)
 	providerNames := flags.String("providers", "", "comma-separated providers to scrape")
 	outputDir := flags.String("output-dir", "", "directory for generated data")
+	requestTimeout := flags.Duration("request-timeout", 0, "timeout for each HTTP request attempt")
+	requestAttempts := flags.Int("request-attempts", 0, "maximum attempts for retryable HTTP requests")
 	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			writeUsage(stdout)
+			return exitSuccess
+		}
 		return writeScrapeError(stdout, stderr, jsonOutput, exitUsage, "", err)
 	}
 	if flags.NArg() != 0 {
 		return writeScrapeError(stdout, stderr, jsonOutput, exitUsage, "", fmt.Errorf("unexpected arguments: %v", flags.Args()))
+	}
+
+	timeoutSet, attemptsSet := false, false
+	flags.Visit(func(current *flag.Flag) {
+		switch current.Name {
+		case "request-timeout":
+			timeoutSet = true
+		case "request-attempts":
+			attemptsSet = true
+		}
+	})
+	httpConfig, err := resolveHTTPConfig(*requestTimeout, timeoutSet, *requestAttempts, attemptsSet)
+	if err != nil {
+		return writeScrapeError(stdout, stderr, jsonOutput, exitUsage, "", err)
+	}
+	if err := utils.ConfigureHTTP(httpConfig); err != nil {
+		return writeScrapeError(stdout, stderr, jsonOutput, exitUsage, "", err)
 	}
 
 	if *providerNames == "" {
@@ -152,11 +177,43 @@ func runScrape(args []string, stdout, stderr io.Writer, jsonOutput bool) int {
 	return exitCode
 }
 
+func resolveHTTPConfig(timeout time.Duration, timeoutSet bool, attempts int, attemptsSet bool) (utils.HTTPConfig, error) {
+	config := utils.DefaultHTTPConfig()
+
+	if timeoutSet {
+		config.RequestTimeout = timeout
+	} else if value := os.Getenv("EC2INSTANCES_REQUEST_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return config, fmt.Errorf("invalid EC2INSTANCES_REQUEST_TIMEOUT: %w", err)
+		}
+		config.RequestTimeout = parsed
+	}
+
+	if attemptsSet {
+		config.MaxAttempts = attempts
+	} else if value := os.Getenv("EC2INSTANCES_REQUEST_ATTEMPTS"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return config, fmt.Errorf("invalid EC2INSTANCES_REQUEST_ATTEMPTS: %w", err)
+		}
+		config.MaxAttempts = parsed
+	}
+
+	if config.RequestTimeout <= 0 {
+		return config, fmt.Errorf("request timeout must be greater than zero")
+	}
+	if config.MaxAttempts < 1 {
+		return config, fmt.Errorf("request attempts must be at least 1")
+	}
+	return config, nil
+}
+
 func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  ec2instances [--json] providers")
 	fmt.Fprintln(w, "  ec2instances [--json] version")
-	fmt.Fprintln(w, "  ec2instances [--json] scrape --providers <names> [--output-dir <path>]")
+	fmt.Fprintln(w, "  ec2instances [--json] scrape --providers <names> [--output-dir <path>] [--request-timeout <duration>] [--request-attempts <count>]")
 }
 
 func writeCLIError(stdout, stderr io.Writer, jsonOutput bool, err error) int {
